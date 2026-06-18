@@ -1249,6 +1249,184 @@ function updateMintCalc(){
   }
 }
 
+/* ================================================================
+   ★ 核心部署逻辑 — CREATE2 工厂 + 尾号碰撞
+   ================================================================ */
+
+/* ─── 本地存储工厂地址 ─── */
+function getFactoryKey(){ return 'modamint_factory_' + (isTestnet ? '97' : '56'); }
+function saveFactory(addr){ localStorage.setItem(getFactoryKey(), addr); }
+function loadFactory(){ return localStorage.getItem(getFactoryKey()); }
+
+/* ─── Vanity 地址碰撞（纯 JS，不上链，带进度回调） ─── */
+async function findVanitySalt(factoryAddr, initCode, suffix, onProgress){
+  suffix = suffix.toLowerCase().replace(/[^0-9a-f]/g, '');
+  if(!suffix) return { salt: ethers.constants.HashZero, address: null, attempts: 0 };
+
+  const initCodeHash = ethers.utils.keccak256(initCode);
+  const suffixLen = suffix.length;
+  const maxAttempts = Math.pow(16, suffixLen) * 10;
+
+  console.log('开始碰撞尾号 ' + suffix + '，概率 1/' + Math.pow(16, suffixLen));
+  const startTime = Date.now();
+  let lastReport = 0;
+
+  for(let i = 0; i < maxAttempts; i++){
+    const saltBytes = ethers.utils.zeroPad(
+      ethers.utils.arrayify(ethers.BigNumber.from(i)),
+      32
+    );
+    const computed = ethers.utils.getCreate2Address(factoryAddr, saltBytes, initCodeHash);
+
+    if(computed.toLowerCase().slice(-suffixLen) === suffix){
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.log('碰撞成功！尝试 ' + (i+1) + ' 次，耗时 ' + elapsed + 's');
+      return { salt: saltBytes, address: computed, attempts: i + 1, elapsed: elapsed };
+    }
+
+    if(onProgress && i % 50000 === 0){
+      const now = Date.now();
+      if(now - lastReport > 800){
+        lastReport = now;
+        const speed = (i / ((now - startTime) / 1000)).toFixed(0);
+        onProgress(i, maxAttempts, speed);
+      }
+    }
+    if(i % 200000 === 199999){
+      await new Promise(r => setTimeout(r, 1));
+    }
+  }
+  throw new Error('碰撞失败：尝试了 ' + maxAttempts + ' 次仍未找到尾号 ' + suffix);
+}
+
+/* ─── 部署/复用工厂合约 ─── */
+async function ensureFactory(){
+  const cached = loadFactory();
+  if(cached){
+    const code = await provider.getCode(cached);
+    if(code !== '0x'){
+      factoryAddress = cached;
+      factoryContract = new ethers.Contract(factoryAddress, FACTORY_ABI, signer);
+      console.log('使用已有工厂:', factoryAddress);
+      return;
+    }
+    console.warn('缓存的工厂地址无效，重新部署...');
+  }
+
+  console.log('首次部署 CREATE2 工厂合约...');
+  const txFactory = new ethers.ContractFactory(FACTORY_ABI, FACTORY_BYTECODE, signer);
+  const deployed = await txFactory.deploy();
+  const receipt = await provider.waitForTransaction(deployed.deployTransaction.hash, 1, 120000);
+  if(receipt.status === 0) throw new Error('工厂合约部署失败（revert）');
+  factoryAddress = receipt.contractAddress;
+  factoryContract = new ethers.Contract(factoryAddress, FACTORY_ABI, signer);
+  saveFactory(factoryAddress);
+  console.log('工厂合约已部署:', factoryAddress);
+}
+
+/* ─── 参数预览 HTML ─── */
+function buildParamsPreview(p, vanityResult, gasBNB){
+  const rows = [
+    ['代币名称', p.name],
+    ['代币符号', p.symbol],
+    ['总供应量', ethers.utils.formatUnits(p.totalSupply, 0)],
+    ['单次 Mint 费用', ethers.utils.formatEther(p.mintCostBNB) + ' BNB'],
+    ['预售硬顶', ethers.utils.formatEther(p.fillBNB) + ' BNB'],
+    ['买入税率', (p.buyTaxBps / 100) + '%'],
+    ['卖出税率', (p.sellTaxBps / 100) + '%'],
+    ['税费分配', '营销:' + (p.marketingBps/100) + '% 燃烧:' + (p.burnBps/100) + '% 分红:' + (p.dividendBps/100) + '% 流动性:' + (p.liquidityBps/100) + '%'],
+    ['资金钱包', p.marketingWallet],
+    ['分红代币', p.dividendToken === ethers.constants.AddressZero ? 'WBNB (默认)' : p.dividendToken],
+    ['分红最低持仓', ethers.utils.formatUnits(p.minHoldForDividend, 18) + ' 代币'],
+    ['白名单 Mint', p.whitelistMintOnly ? '仅白名单可 Mint' : '公开 Mint'],
+    ['预售代币比例', p.presaleTokenPct + '% (LP: ' + (100 - p.presaleTokenPct) + '%)'],
+  ];
+  if(vanityResult && vanityResult.address){
+    rows.unshift(['预期地址', '<span style="color:var(--accent1);font-family:monospace;font-size:.82rem">' + vanityResult.address + '</span>']);
+    rows.unshift(['碰撞尝试', vanityResult.attempts + ' 次 (' + vanityResult.elapsed + 's)']);
+  }
+  if(gasBNB) rows.push(['预估 Gas', gasBNB + ' BNB']);
+
+  let html = '<div style="text-align:left;background:rgba(0,0,0,.3);border:1px solid rgba(201,169,110,.2);border-radius:9px;padding:14px 16px;margin:12px 0;max-height:280px;overflow-y:auto;font-size:.82rem">';
+  html += '<table style="width:100%;border-collapse:collapse">';
+  rows.forEach(([k, v]) => {
+    html += '<tr><td style="padding:4px 8px 4px 0;color:#aaa;white-space:nowrap;font-weight:600">' + k + '</td><td style="padding:4px 0;word-break:break-all">' + v + '</td></tr>';
+  });
+  html += '</table></div>';
+  return html;
+}
+
+/* ─── 弹窗控制 ─── */
+function setModalClosable(allowed){
+  const btn = document.getElementById('btn-close-modal');
+  if(!btn) return;
+  if(allowed){
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.style.cursor = 'pointer';
+    btn.textContent = '关闭';
+    btn.onclick = closeModal;
+  } else {
+    btn.disabled = false;
+    btn.style.opacity = '.7';
+    btn.style.cursor = 'pointer';
+    btn.textContent = '取消';
+    btn.onclick = closeModal;
+  }
+}
+
+/* ─── 错误信息解析 ─── */
+function getErrorMsg(e){
+  let innerMsg = '';
+  if(e.message && e.message.includes('chrome-extension://')){
+    const revertMatch = e.message.match(/revert[^"]*"([^"]+)"/);
+    if(revertMatch) innerMsg = revertMatch[1];
+    if(e.data && e.data.indexOf('0x') === 0 && e.data.length > 10){
+      try {
+        const reason = ethers.utils.defaultAbiCoder.decode(['string'], '0x' + e.data.slice(10));
+        innerMsg = reason[0];
+      } catch(ignored){}
+    }
+    if(innerMsg) return '合约执行失败: ' + innerMsg;
+    return '合约部署失败，请检查预售硬顶（>0）、单次Mint费用（>0）、税费分配（=100%）等参数。';
+  }
+  if(e.code === 4001) return '你拒绝了钱包交易请求。';
+  if(e.code === -32603){
+    let extra = '';
+    if(e.reason) extra = '<br/>原因: ' + e.reason;
+    else if(e.message && e.message.includes('execution reverted')) extra = '<br/>合约构造函数执行会失败，请检查参数。';
+    return 'Gas 估算失败，合约部署会 revert。' + extra;
+  }
+  if(e.message && e.message.includes('insufficient funds')) return 'BNB 余额不足，请充值后重试。';
+  if(e.message && e.message.includes('Tax alloc')) return '税费分配参数错误，请确保总和等于 100%。';
+  if(e.message && e.message.includes('Fill min')) return '预售硬顶必须大于 0。';
+  if(e.message && e.message.includes('Mint cost')) return '单次 Mint 费用必须大于 0，且不能超过预售硬顶。';
+  let detail = e.reason || e.message || JSON.stringify(e);
+  if(detail.length > 300) detail = detail.substring(0, 300) + '...';
+  return '部署出错: ' + detail;
+}
+
+/* ─── 表单校验 ─── */
+function validate(){
+  const name = document.getElementById('token-name').value.trim();
+  const sym  = document.getElementById('token-symbol').value.trim();
+  const sup  = document.getElementById('total-supply').value;
+  const mint = document.getElementById('mint-amount').value;
+  const fill = document.getElementById('fill-amount').value;
+  if(!name){ alert('请填写代币名称'); return false; }
+  if(!sym)  { alert('请填写代币符号'); return false; }
+  if(!sup || parseFloat(sup) <= 0){ alert('请填写有效的代币总供应量'); return false; }
+  if(!mint || parseFloat(mint) <= 0){ alert('请填写有效的单次 Mint 费用'); return false; }
+  if(!fill || parseFloat(fill) <= 0){ alert('请填写有效的预售硬顶数量'); return false; }
+  // 税费分配必须 = 100%
+  var total = (parseInt(document.getElementById('fund-slider').value)||0)
+            + (parseInt(document.getElementById('burn-slider').value)||0)
+            + (parseInt(document.getElementById('div-slider').value)||0)
+            + (parseInt(document.getElementById('liq-slider').value)||0);
+  if(total !== 100){ alert('税费分配总计必须等于 100%（当前：'+total+'%）'); return false; }
+  return true;
+}
+
 /* ─── 构建合约部署参数 ─── */
 function buildLaunchArgs(){
   var sup = document.getElementById('total-supply').value;
@@ -1276,11 +1454,15 @@ function buildLaunchArgs(){
 
   var minHold = ethers.BigNumber.from(document.getElementById('min-hold-div').value || '1').mul(ethers.BigNumber.from(10).pow(decimals));
 
+  var ownerAddr = currentAccount || '0x0000000000000000000000000000000000000000';
+
   return {
+    name: document.getElementById('token-name').value.trim(),
+    symbol: document.getElementById('token-symbol').value.trim(),
     totalSupply: totalSupply,
     mintCostBNB: mintCost,
-    fillAmountBNB: fillAmount,
-    presaleAllocationPct: presalePct,
+    fillBNB: fillAmount,
+    presaleTokenPct: presalePct,
     buyTaxBps: buyTax,
     sellTaxBps: sellTax,
     marketingBps: mktBps,
@@ -1288,169 +1470,270 @@ function buildLaunchArgs(){
     dividendBps: divBps,
     liquidityBps: liqBps,
     antiSnipSeconds: protectDays * 86400,
-    marketingWallet: fundAddr,
-    divToken: divTokenAddr,
-    minHoldForDividend: minHold
+    marketingWallet: fundAddr || ownerAddr,
+    dividendToken: divTokenAddr === '0x0000000000000000000000000000000000000000' ? ethers.constants.AddressZero : divTokenAddr,
+    minHoldForDividend: minHold,
+    whitelistMintOnly: document.getElementById('whitelist-mint') ? document.getElementById('whitelist-mint').checked : false
   };
 }
 
 /* ─── 部署法契 ─── */
 async function launchToken(){
   if(!walletConnected){ alert('请先连接仙窍！'); return; }
+  if(!validate()) return;
+  setStep(2,'done'); setStep(3,'active'); setLine(2,'done');
+
+  const p = buildLaunchArgs();
+  const vanitySuffix = (document.getElementById('vanity-suffix') ? document.getElementById('vanity-suffix').value : '').trim();
+
+  console.log('=== 部署参数 ===');
+  console.log('  名称:', p.name, '  符号:', p.symbol);
+  console.log('  总供应:', p.totalSupply.toString(), '  单次Mint费用:', ethers.utils.formatEther(p.mintCostBNB), 'BNB');
+  console.log('  预售硬顶:', ethers.utils.formatEther(p.fillBNB), 'BNB');
+  console.log('  买税:', p.buyTaxBps, 'bps  卖税:', p.sellTaxBps, 'bps');
+  console.log('  分配:', p.marketingBps, '/', p.burnBps, '/', p.dividendBps, '/', p.liquidityBps);
+
+  const modal = document.getElementById('modal');
+  const modalIcon = document.getElementById('modal-icon');
+  const modalTitle = document.getElementById('modal-title');
+  const modalDesc = document.getElementById('modal-desc');
+  const modalStatus = document.getElementById('modal-status');
+  const modalSpinner = document.getElementById('modal-spinner');
+  const statusText = document.getElementById('modal-status-text');
+  const contractBox = document.getElementById('contract-box');
+  const btnCopy = document.getElementById('btn-copy');
+  const btnBsc = document.getElementById('btn-bscscan');
+  const actionsDiv = document.querySelector('.modal-actions');
+
+  modal.classList.add('show');
+  setModalClosable(false);
+  contractBox.style.display = 'none';
+  btnCopy.style.display = 'none';
+  btnBsc.style.display = 'none';
+
+  const oldConfirm = document.getElementById('btn-confirm-deploy');
+  if(oldConfirm) oldConfirm.remove();
+
+  let deployTxHash = '';
+  const explorerBase = isTestnet ? 'https://testnet.bscscan.com' : 'https://bscscan.com';
+
   try {
-    var name = document.getElementById('token-name').value.trim();
-    var symbol = document.getElementById('token-symbol').value.trim();
-    if(!name) throw new Error('请输入仙品名号');
-    if(!symbol) throw new Error('请输入仙品印记');
+    // ===== 阶段1：准备工厂 =====
+    modalIcon.textContent = '🏭';
+    modalTitle.textContent = '正在准备部署...';
+    modalDesc.textContent = '检查/部署工厂合约...';
+    if(modalStatus) modalStatus.style.display = 'flex';
+    modalSpinner.style.display = 'block';
+    statusText.textContent = '⏳ 初始化中';
+    await ensureFactory();
 
-    var args = buildLaunchArgs();
+    // ===== 阶段2：构建 initCode =====
+    statusText.textContent = '🔧 构建合约数据...';
+    modalDesc.textContent = '正在编码部署参数...';
+    const tokenFactory = new ethers.ContractFactory(CONTRACT_DATA.ABI, CONTRACT_DATA.BYTECODE, signer);
+    const deployTxData = tokenFactory.getDeployTransaction(
+      p.name, p.symbol,
+      p.totalSupply, p.mintCostBNB, p.fillBNB,
+      p.buyTaxBps, p.sellTaxBps,
+      p.marketingBps, p.burnBps, p.dividendBps, p.liquidityBps,
+      p.marketingWallet, p.dividendToken,
+      p.minHoldForDividend,
+      p.presaleTokenPct,
+      p.whitelistMintOnly,
+      await signer.getAddress()  // owner_ = 用户钱包
+    );
+    const initCode = deployTxData.data;
+    const bytecodeOnly = CONTRACT_DATA.BYTECODE;
+    const ctorArgsHex = '0x' + initCode.slice(bytecodeOnly.length);
+    console.log('构造函数参数 (验证用):', ctorArgsHex);
+    console.log('initCode 长度:', initCode.length);
 
-    setStep(3,'active'); setLine(2,'done');
-    showModal('🐉','铸契天道中','请在弹出的仙窍中确认天道法旨并等待天道推演...','waiting');
-    document.getElementById('btn-launch').disabled = true;
+    // ===== 阶段3：Vanity 碰撞（带进度） =====
+    let vanityResult = null;
+    if(vanitySuffix){
+      modalIcon.textContent = '🔢';
+      modalTitle.textContent = '正在碰撞尾号...';
+      modalDesc.innerHTML = '<div id="vanity-progress" style="font-size:.85rem;opacity:.7">尾号: <strong>' + vanitySuffix + '</strong> | 尝试: <span id="vp-attempts">0</span> | 速度: <span id="vp-speed">-</span> 次/秒</div>';
+      statusText.textContent = '⏳ 本地碰撞中（不上链）...';
 
-    var FACTORY_ADDR = '0x061B33E5f016C2433c828dA521Ce37000aa18c34';
-    var factory = new ethers.Contract(FACTORY_ADDR, FACTORY_ABI, signer);
+      vanityResult = await findVanitySalt(factoryAddress, initCode, vanitySuffix, function(current, max, speed){
+        const el = document.getElementById('vp-attempts');
+        const spd = document.getElementById('vp-speed');
+        if(el) el.textContent = current.toLocaleString();
+        if(spd) spd.textContent = speed;
+      });
 
-    var salt = ethers.BigNumber.from(0);
-    var vanitySuffix = document.getElementById('vanity-suffix').value.trim();
-    var blockNum = 0;
-
-    if(vanitySuffix && vanitySuffix.length > 0){
-      document.getElementById('modal-status-text').textContent = '🔢 推演天机尾号 "' + vanitySuffix + '" ...';
-      blockNum = await provider.getBlockNumber();
+      modalDesc.innerHTML = '<div style="color:#4caf50;font-weight:700">✅ 碰撞成功！尝试 ' + vanityResult.attempts + ' 次，耗时 ' + vanityResult.elapsed + 's</div>';
     }
 
-    document.getElementById('modal-status-text').textContent = '⏳ 天道推演中，请勿离开...';
+    // ===== 阶段4：估算 Gas + 参数确认 =====
+    statusText.textContent = '📊 估算 Gas...';
+    const salt = vanityResult ? vanityResult.salt : ethers.constants.HashZero;
+    let gasEst;
+    try {
+      gasEst = await factoryContract.estimateGas.deploy(salt, initCode);
+    } catch(gasErr) {
+      console.error('Gas 估算失败:', gasErr);
+      let hint2 = '';
+      if(gasErr.message && gasErr.message.includes('Fill')) hint2 = '（预售硬顶参数可能有误）';
+      else if(gasErr.message && gasErr.message.includes('Mint cost')) hint2 = '（Mint 费用参数可能有误）';
+      else if(gasErr.message && gasErr.message.includes('execution reverted')) hint2 = '（合约构造函数执行失败，请检查所有参数）';
+      else if(gasErr.code === -32603) hint2 = '（合约会 revert，请检查参数是否满足部署条件）';
+      throw new Error('Gas 估算失败: 合约部署会失败' + hint2 + '。原始错误: ' + (gasErr.reason || gasErr.message || gasErr.code));
+    }
+    const gasPrice = await signer.getGasPrice();
+    const gasBNB = ethers.utils.formatEther(gasEst.mul(gasPrice));
+    const gasStr = parseFloat(gasBNB).toFixed(5);
 
-    var tx = await factory.deployToken(
-      salt,
-      name,
-      symbol,
-      args.totalSupply,
-      args.mintCostBNB,
-      args.fillAmountBNB,
-      args.presaleAllocationPct,
-      args.buyTaxBps,
-      args.sellTaxBps,
-      args.marketingBps,
-      args.burnBps,
-      args.dividendBps,
-      args.liquidityBps,
-      args.antiSnipSeconds,
-      args.marketingWallet,
-      args.divToken,
-      args.minHoldForDividend,
-      vanitySuffix,
-      blockNum
-    );
+    // 显示参数预览
+    modalIcon.textContent = '📋';
+    modalTitle.textContent = '确认部署参数';
+    modalDesc.innerHTML = buildParamsPreview(p, vanityResult, gasStr);
+    modalDesc.innerHTML += '<div style="font-size:.85rem;color:#c9a96e;margin-top:4px">请仔细核对以上参数，确认无误后点击下方按钮部署</div>';
+    statusText.textContent = '⏳ 等待确认部署...';
+    modalSpinner.style.display = 'none';
 
-    document.getElementById('modal-status-text').textContent = '⏳ 天道推演中（等待区块确认）...';
-    var receipt = await tx.wait();
+    // 插入确认部署按钮
+    const confirmBtn = document.createElement('button');
+    confirmBtn.id = 'btn-confirm-deploy';
+    confirmBtn.className = 'btn-launch';
+    confirmBtn.style.cssText = 'width:auto;margin-top:16px;padding:14px 36px;font-size:1rem';
+    confirmBtn.textContent = '🚀 确认部署上链';
+    if(actionsDiv) actionsDiv.insertBefore(confirmBtn, actionsDiv.firstChild);
 
-    var deployedAddr = null;
-    var eventSig = ethers.utils.id('TokenDeployed(address,bytes32,address)');
-    for(var i=0;i<receipt.logs.length;i++){
-      var log = receipt.logs[i];
-      if(log.topics[0] === eventSig && log.address.toLowerCase() === FACTORY_ADDR.toLowerCase()){
-        deployedAddr = '0x' + log.topics[1].slice(26);
-        break;
+    // 等待用户点击确认
+    await new Promise(function(resolve, reject){
+      confirmBtn.onclick = function(){
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = '⏳ 交易提交中...';
+        resolve();
+      };
+      modal._rejectOnClose = reject;
+    });
+
+    // ===== 阶段5：上链部署 =====
+    modalIcon.textContent = '🚀';
+    modalTitle.textContent = '法契铸造中！';
+    statusText.textContent = '📱 请在钱包中确认交易...';
+    modalSpinner.style.display = 'block';
+    modalDesc.innerHTML = '请在钱包中确认交易...';
+
+    const tx = await factoryContract.deploy(salt, initCode);
+    deployTxHash = tx.hash;
+
+    // ===== 阶段6：等待确认 =====
+    const txExplorer = explorerBase + '/tx/' + deployTxHash;
+    statusText.innerHTML = '⏳ 交易已提交，等待确认...<br/><a href="' + txExplorer + '" target="_blank" style="color:#c9a96e;font-size:.8rem">查看交易 ↗</a>';
+    modalDesc.innerHTML = 'TX: <code style="font-size:.78rem;color:#c9a96e;word-break:break-all">' + deployTxHash + '</code>';
+
+    const receipt = await provider.waitForTransaction(deployTxHash, 1, 180000);
+
+    if(receipt.status === 0){
+      throw new Error('交易已上链但执行失败（revert），合约未部署。可能是参数错误。');
+    }
+
+    // ===== 阶段7：解析合约地址 =====
+    const iface = new ethers.utils.Interface(FACTORY_ABI);
+    let contractAddr = null;
+    if(receipt.logs && receipt.logs.length > 0){
+      for(const log of receipt.logs){
+        try {
+          const parsed = iface.parseLog(log);
+          if(parsed && parsed.name === 'TokenDeployed'){
+            contractAddr = parsed.args.token;
+            break;
+          }
+        } catch(e){ /* skip non-factory logs */ }
       }
     }
+    if(!contractAddr){
+      const topic = iface.getEventTopic('TokenDeployed');
+      for(const log of receipt.logs){
+        if(log.topics && log.topics[0] === topic){
+          contractAddr = ethers.utils.getAddress('0x' + log.topics[1].slice(26));
+          break;
+        }
+      }
+    }
+    if(!contractAddr){
+      throw new Error('无法从交易中解析合约地址，请在 BscScan 查看交易详情。');
+    }
 
-    if(!deployedAddr) throw new Error('未能检测到法契地址');
+    // ===== 成功！ =====
+    window._lastDeployed = contractAddr;
+    window._ctorArgsHex = ctorArgsHex;
 
-    window._lastDeployed = deployedAddr;
-    window._lastConstructorArgs = {
-      name: name, symbol: symbol,
-      totalSupply: args.totalSupply.toString(),
-      mintCostBNB: ethers.utils.formatEther(args.mintCostBNB),
-      fillAmountBNB: ethers.utils.formatEther(args.fillAmountBNB),
-      presaleAllocationPct: args.presaleAllocationPct,
-      buyTaxBps: args.buyTaxBps,
-      sellTaxBps: args.sellTaxBps,
-      marketingBps: args.marketingBps,
-      burnBps: args.burnBps,
-      dividendBps: args.dividendBps,
-      liquidityBps: args.liquidityBps,
-      antiSnipSeconds: args.antiSnipSeconds,
-      marketingWallet: args.marketingWallet,
-      divToken: args.divToken,
-      minHoldForDividend: args.minHoldForDividend.toString()
-    };
-// ===== 新增：将本次新铸仙品存入独立云端存储 tokens_data_shenhua =====
-// 1. 组装和老数据完全一致格式的 tokenObj
-const nowTs = Math.floor(Date.now() / 1000);
-const imgBase64 = window._tokenImage || "";
-const linkObj = {
-  website: document.getElementById('link-website').value.trim(),
-  twitter: document.getElementById('link-twitter').value.trim(),
-  telegram: document.getElementById('link-telegram').value.trim(),
-  discord: document.getElementById('link-discord').value.trim()
-};
-const descText = document.getElementById('token-desc').value.trim() || "仙品创世";
-const wlEnabled = document.getElementById('whitelist-mint').checked ? 1 : 0;
+    modalSpinner.style.display = 'none';
+    modalIcon.textContent = '🎉';
+    modalTitle.textContent = p.name + ' 铸契功成！';
+    const gasUsed = ethers.utils.formatEther(receipt.gasUsed.mul(receipt.effectiveGasPrice || await signer.getGasPrice()));
+    modalDesc.innerHTML = '<div style="font-size:.85rem;color:#4caf50;font-weight:700;margin-bottom:4px">✅ 法契已铭刻于 ' + (isTestnet ? 'BSC 试炼仙域' : 'BSC 主仙域') + '</div><div style="font-size:.78rem;opacity:.7">Gas 消耗: ' + parseFloat(gasUsed).toFixed(5) + ' BNB</div>';
+    statusText.textContent = '✅ 天道铸造完成';
+    document.getElementById('contract-addr').textContent = contractAddr;
+    contractBox.style.display = 'block';
+    btnCopy.style.display = 'inline-flex';
+    btnBsc.href = explorerBase + '/address/' + contractAddr;
+    btnBsc.style.display = 'inline-flex';
 
-const tokenObj = {
-  a: deployedAddr,
-  n: name,
-  s: symbol,
-  d: currentAccount, // 部署者钱包地址
-  t: nowTs,
-  h: tx.hash, // 部署交易哈希
-  img: imgBase64,
-  desc: descText,
-  links: linkObj,
-  wl: wlEnabled
-};
+    setStep(3,'done'); setStep(4,'done'); setLine(3,'done');
+    setModalClosable(true);
+    console.log('✅ 合约已部署:', contractAddr, 'TX:', deployTxHash);
 
-// 2. 调用 index.html 里配套的云端写入函数，携带 project=shenhua 隔离数据
-await fetch("/api/mintCount", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    type: "running",
-    num: 1,
-    tokenInfo: tokenObj,
-    project: "shenhua"
-  })
-});
-    setStep(3,'done'); setStep(4,'active'); setLine(3,'done');
+    // 显示验证区域
+    var verifySection = document.getElementById('verify-section');
+    if(verifySection){
+      verifySection.style.display = 'block';
+      var ctorArgsEl = document.getElementById('ctor-args-text');
+      if(ctorArgsEl) ctorArgsEl.textContent = ctorArgsHex;
+    }
 
-    var bscscanBase = isTestnet ? 'https://testnet.bscscan.com' : 'https://bscscan.com';
-    document.getElementById('modal-icon').textContent = '✅';
-    document.getElementById('modal-title').textContent = name + ' 铸契功成！';
-    document.getElementById('modal-desc').textContent = '法契已铭刻于 BNB 仙域，天机永存';
-    document.getElementById('modal-status-text').textContent = '✅ 天道铸造完成';
-    document.getElementById('modal-spinner').style.display = 'none';
+    // 云端同步（不影响部署结果）
+    try {
+      const nowTs = Math.floor(Date.now() / 1000);
+      const imgBase64 = window._tokenImage || "";
+      const linkObj = {
+        website: document.getElementById('link-website') ? document.getElementById('link-website').value.trim() : '',
+        twitter: document.getElementById('link-twitter') ? document.getElementById('link-twitter').value.trim() : '',
+        telegram: document.getElementById('link-telegram') ? document.getElementById('link-telegram').value.trim() : '',
+        discord: document.getElementById('link-discord') ? document.getElementById('link-discord').value.trim() : ''
+      };
+      const descText = document.getElementById('token-desc') ? (document.getElementById('token-desc').value.trim() || '仙品创世') : '仙品创世';
+      const wlEnabled = p.whitelistMintOnly ? 1 : 0;
+      const tokenObj = {
+        a: contractAddr, n: p.name, s: p.symbol,
+        d: currentAccount, t: nowTs, h: deployTxHash,
+        img: imgBase64, desc: descText, links: linkObj, wl: wlEnabled
+      };
+      await fetch("/api/mintCount", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "running", num: 1, tokenInfo: tokenObj, project: "shenhua" })
+      });
+    } catch(syncErr){
+      console.warn('云端同步失败（不影响部署）:', syncErr.message);
+    }
 
-    document.getElementById('contract-addr').textContent = deployedAddr;
-    document.getElementById('contract-box').style.display = 'block';
-    document.getElementById('btn-copy').style.display = 'inline-flex';
-    var bscBtn = document.getElementById('btn-bscscan');
-    bscBtn.href = bscscanBase + '/address/' + deployedAddr;
-    bscBtn.style.display = 'inline-flex';
-    document.getElementById('btn-close-modal').textContent = '返回天道';
-
-    document.getElementById('verify-section').style.display = 'block';
-    var ctorAbi = ['address','uint256','uint256','uint256','uint256','uint256','uint256','uint256','uint256','uint256','uint256','uint256','uint256','uint256','address','address','uint256'];
-    var ctorVals = [FACTORY_ADDR, args.totalSupply.toString(), args.mintCostBNB.toString(), args.fillAmountBNB.toString(), args.presaleAllocationPct, args.buyTaxBps, args.sellTaxBps, args.marketingBps, args.burnBps, args.dividendBps, args.liquidityBps, args.antiSnipSeconds, args.marketingWallet, args.divToken, args.minHoldForDividend.toString(), salt.toString(), blockNum];
-    var ctorBytes = ethers.utils.defaultAbiCoder.encode(ctorAbi, ctorVals);
-    document.getElementById('ctor-args-text').textContent = ctorBytes;
-
-    setStep(4,'done');
-
-    updateCtorArgsDisplay(name, symbol);
   } catch(e){
-    console.error(e);
-    document.getElementById('modal-icon').textContent = '⚠️';
-    document.getElementById('modal-title').textContent = '铸契失败';
-    var errMsg = e.reason || e.message || '未知错误';
-    if(errMsg.includes('user rejected') || errMsg.includes('User denied') || errMsg.includes('rejected')) errMsg = '您在仙窍中拒绝了此次铸契';
-    document.getElementById('modal-desc').textContent = errMsg;
-    document.getElementById('modal-status-text').textContent = '❌ 铸契中止';
-    document.getElementById('modal-spinner').style.display = 'none';
-    document.getElementById('btn-close-modal').textContent = '再悟天机';
+    console.error('部署失败:', e);
+    if(e.message === 'USER_CANCELLED'){
+      closeModal();
+      setStep(2,'done'); setStep(3,'active'); setLine(2,'done');
+      return;
+    }
+    modalSpinner.style.display = 'none';
+    modalIcon.textContent = '⚠️';
+    modalTitle.textContent = '铸契失败';
+    let errMsg = getErrorMsg(e);
+    if(e.message && (e.message.includes('user rejected') || e.message.includes('User denied') || e.message.includes('rejected'))){
+      errMsg = '您在仙窍中拒绝了此次铸契';
+    }
+    let hint = '';
+    if(deployTxHash) hint = '<br/><span style="font-size:.82rem">TX: <a href="' + explorerBase + '/tx/' + deployTxHash + '" target="_blank" style="color:#c9a96e">' + deployTxHash.slice(0,10) + '...' + deployTxHash.slice(-8) + '</a></span>';
+    if(factoryAddress) hint += '<br/><span style="font-size:.78rem;opacity:.6">工厂: ' + factoryAddress + '</span>';
+    modalDesc.innerHTML = errMsg + hint;
+    statusText.textContent = '❌ 铸契中止';
+    setModalClosable(true);
+    setStep(2,'active'); setStep(3,'active'); setLine(2,'active');
     document.getElementById('btn-launch').disabled = false;
   }
 }
@@ -1483,7 +1766,17 @@ function showModal(icon, title, desc, state){
 }
 
 function closeModal(){
-  document.getElementById('modal').classList.remove('show');
+  const modal = document.getElementById('modal');
+  modal.classList.remove('show');
+  setModalClosable(true);
+  // 如果有等待中的确认操作，触发取消
+  if(modal._rejectOnClose){
+    modal._rejectOnClose(new Error('USER_CANCELLED'));
+    modal._rejectOnClose = null;
+  }
+  // 清理确认按钮
+  const confirmBtn = document.getElementById('btn-confirm-deploy');
+  if(confirmBtn) confirmBtn.remove();
 }
 
 function copyContract(){
