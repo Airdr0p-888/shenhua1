@@ -1714,10 +1714,19 @@ async function launchToken(){
         d: currentAccount, t: nowTs, h: deployTxHash,
         img: imgBase64, desc: descText, links: linkObj, wl: wlEnabled
       };
+      // 先读取当前 running 计数，+1 后传绝对值（和 index.html 逻辑一致）
+      let newRunning = 1;
+      try {
+        const countResp = await fetch("/api/mintCount?project=shenhua", { cache: "no-cache" });
+        if (countResp.ok) {
+          const countData = await countResp.json();
+          newRunning = (countData.mint_running || 0) + 1;
+        }
+      } catch(e) { /* 读取失败则默认 1 */ }
       await fetch("/api/mintCount", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "running", num: 1, tokenInfo: tokenObj, project: "shenhua" })
+        body: JSON.stringify({ type: "running", num: newRunning, tokenInfo: tokenObj, project: "shenhua" })
       });
     } catch(syncErr){
       console.warn('云端同步失败（不影响部署）:', syncErr.message);
