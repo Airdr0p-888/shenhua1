@@ -876,7 +876,6 @@
   }
 
   async function loadTokens(){
-    await loadMintCloudData(); // 新增这一行，同步云端独立仙品数据
     var liveBody = document.getElementById('col-live');
     var doneBody = document.getElementById('col-done');
     if(!liveBody || !doneBody) return;
@@ -1259,116 +1258,6 @@
     el.style.cssText += ';opacity:0;transform:translateY(24px);transition:opacity .55s ease,transform .55s ease';
     io.observe(el);
   });
-// ========== Vercel KV 独立仙品阁数据读写（project=shenhua 隔离老数据）==========
-let mintRunningCount = 0;
-let mintDoneCount = 0;
-let cloudTokenList = [];
-
-// 页面加载、刷新天机按钮 统一调用读取云端数据
-async function loadMintCloudData() {
-  try {
-    // 带上project=shenhua，单独读取仙品阁数据，和老项目tokens_data隔离
-    const res = await fetch('/api/mintCount?project=shenhua', { cache: "no-cache" });
-    if (!res.ok) throw new Error("接口请求失败");
-    const data = await res.json();
-
-    // 赋值全局计数
-    mintRunningCount = data.mint_running || 0;
-    mintDoneCount = data.mint_done || 0;
-    cloudTokenList = data.list || [];
-
-    // 替换页面顶部左右栏数字
-    document.getElementById("cnt-live").innerText = mintRunningCount;
-    document.getElementById("cnt-done").innerText = mintDoneCount;
-
-    // 替换统计面板总数
-    document.getElementById("stat-tokens").innerText = cloudTokenList.length;
-    document.getElementById("stat-done").innerText = mintDoneCount;
-
-    // 替换空白提示文字
-    const liveBox = document.getElementById("col-live");
-    const doneBox = document.getElementById("col-done");
-    if (mintRunningCount === 0) {
-      liveBox.innerHTML = '<div class="col-empty">🐉 暂无铸造中的仙品<br/><a href="launch.html" style="color:var(--accent1)">去开天辟地</a></div>';
-    }
-    if (mintDoneCount === 0) {
-      doneBox.innerHTML = '<div class="col-empty">暂无功成圆满的仙品</div>';
-    }
-
-  } catch (err) {
-    console.error("读取云端仙品数据失败：", err);
-  }
-}
-
-// 新增铸造中仙品（铸造按钮调用，数量+1，存入云端数组）
-async function addNewMintToken(tokenObj) {
-  // 1、铸造进行中数字 +1
-  mintRunningCount += 1;
-  await fetch("/api/mintCount", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      type: "running",
-      num: mintRunningCount,
-      project: "shenhua"
-    })
-  });
-
-  // 2、把完整代币信息存入独立数组 tokens_data_shenhua
-  await fetch("/api/mintCount", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      tokenInfo: tokenObj,
-      project: "shenhua"
-    })
-  });
-
-  // 刷新页面数据
-  await loadMintCloudData();
-}
-
-// 仙品铸造完成，转移到圆满列表
-async function finishMintToken() {
-  // 铸造中-1，圆满+1
-  mintRunningCount -= 1;
-  mintDoneCount += 1;
-
-  await fetch("/api/mintCount", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      type: "running",
-      num: mintRunningCount,
-      project: "shenhua"
-    })
-  });
-  await fetch("/api/mintCount", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      type: "done",
-      num: mintDoneCount,
-      project: "shenhua"
-    })
-  });
-
-  await loadMintCloudData();
-}
-
-// 页面初始化自动加载云端数据
-window.addEventListener("load", async () => {
-  await loadMintCloudData();
-});
-
-// 绑定【刷新天机】按钮点击事件
-const refreshBtn = document.querySelector("button[onclick='loadTokens()']");
-if (refreshBtn) {
-  refreshBtn.onclick = async function () {
-    await loadTokens();
-    await loadMintCloudData();
-  }
-}
 </script>
 </body>
 </html>

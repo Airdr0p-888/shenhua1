@@ -1378,43 +1378,7 @@ async function launchToken(){
       divToken: args.divToken,
       minHoldForDividend: args.minHoldForDividend.toString()
     };
-// ===== 新增：将本次新铸仙品存入独立云端存储 tokens_data_shenhua =====
-// 1. 组装和老数据完全一致格式的 tokenObj
-const nowTs = Math.floor(Date.now() / 1000);
-const imgBase64 = window._tokenImage || "";
-const linkObj = {
-  website: document.getElementById('link-website').value.trim(),
-  twitter: document.getElementById('link-twitter').value.trim(),
-  telegram: document.getElementById('link-telegram').value.trim(),
-  discord: document.getElementById('link-discord').value.trim()
-};
-const descText = document.getElementById('token-desc').value.trim() || "仙品创世";
-const wlEnabled = document.getElementById('whitelist-mint').checked ? 1 : 0;
 
-const tokenObj = {
-  a: deployedAddr,
-  n: name,
-  s: symbol,
-  d: currentAccount, // 部署者钱包地址
-  t: nowTs,
-  h: tx.hash, // 部署交易哈希
-  img: imgBase64,
-  desc: descText,
-  links: linkObj,
-  wl: wlEnabled
-};
-
-// 2. 调用 index.html 里配套的云端写入函数，携带 project=shenhua 隔离数据
-await fetch("/api/mintCount", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    type: "running",
-    num: 1,
-    tokenInfo: tokenObj,
-    project: "shenhua"
-  })
-});
     setStep(3,'done'); setStep(4,'active'); setLine(3,'done');
 
     var bscscanBase = isTestnet ? 'https://testnet.bscscan.com' : 'https://bscscan.com';
