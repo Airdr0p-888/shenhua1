@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>神龙 DRAGON MINT — 仙尊法契管理台</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg-deep:    #080812;
+      --bg-card:    #12122a;
+      --bg-input:   #1a1a35;
+      --accent1:    #c9a96e;
+      --accent2:    #c41e3a;
+      --accent3:    #e8b84b;
+      --danger:     #ff4444;
+      --success:    #4caf50;
+      --text-main:  #e8dcc8;
+      --text-muted: #8a8578;
+      --text-body:  #e8dcc8;
+      --border:     #2a2545;
+      --border-focus: rgba(201,169,110,.55);
+      --radius: 12px;
+      --font: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg-deep);
+      color: var(--text-main);
+      font-family: var(--font);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    body::before {
+      content:'';
+      position:fixed; inset:0;
+      background:
+        radial-gradient(ellipse 70% 45% at 15% 15%, rgba(201,169,110,.05) 0%, transparent 60%),
+        radial-gradient(ellipse 55% 40% at 85% 85%, rgba(196,30,58,.04) 0%, transparent 55%),
+        radial-gradient(ellipse 50% 30% at 50% 0%, rgba(155,89,182,.03) 0%, transparent 50%);
+      pointer-events:none; z-index:0;
+    }
+    .stars { position:fixed; inset:0; overflow:hidden; pointer-events:none; z-index:0; }
+    .star {
+      position:absolute; border-radius:50%; background:rgba(201,169,110,.12);
+      opacity:0; animation:twinkle var(--dur,4s) var(--delay,0s) infinite ease-in-out;
+      box-shadow: 0 0 6px rgba(201,169,110,.15);
+    }
+    @keyframes twinkle {
+      0%,100%{opacity:0;transform:scale(.6) translateY(4px)} 50%{opacity:var(--op,.6);transform:scale(1) translateY(-4px)}
+    }
+
+    /* 导航 */
+    header {
+      position:sticky; top:0; z-index:100;
+      background:rgba(8,8,18,.92); backdrop-filter:blur(20px);
+      border-bottom:1px solid var(--border);
+    }
+    nav {
+      max-width:1100px; margin:0 auto; padding:0 24px;
+      display:flex; align-items:center; justify-content:space-between; height:66px;
+    }
+    .logo { display:flex; align-items:center; gap:10px; text-decoration:none; }
+    .logo-icon-img { width: 32px; height: 32px; border-radius: 50%; animation: float 4s ease-in-out infinite; }
+    @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+    .logo-text-en { font-size:.72rem; letter-spacing:4px; color:var(--accent1); display:block; line-height:1; text-shadow: 0 0 10px rgba(201,169,110,.4); }
+    .logo-text-cn { font-size:1.05rem; color:var(--accent1); font-weight:800; display:block; line-height:1.3; }
+    .nav-right { display:flex; align-items:center; gap:12px; }
+    .btn {
+      display:inline-flex; align-items:center; gap:6px;
+      padding:9px 20px; border-radius:50px; font-weight:700; font-size:.9rem;
+      cursor:pointer; text-decoration:none; border:none; transition:all .25s;
+    }
+    .btn-ghost { background:transparent; color:var(--text-muted); border:1px solid var(--border); }
+    .btn-ghost:hover { border-color:var(--accent1); color:var(--accent1); }
+    .btn-outline-purple {
+      background:rgba(201,169,110,.1); color:var(--accent1);
+      border:1px solid rgba(201,169,110,.35);
+    }
+    .btn-outline-purple:hover { background:rgba(201,169,110,.2); box-shadow: 0 0 16px rgba(201,169,110,.2); }
+    .wallet-addr {
+      font-size:.82rem; color:var(--accent1); font-family:monospace;
+      background:rgba(201,169,110,.08); border:1px solid rgba(201,169,110,.25);
+      padding:5px 14px; border-radius:50px;
+    }
+
+    /* 头部标题 */
+    .page-hero {
+      text-align:center; padding:52px 24px 36px; position:relative; z-index:1;
+    }
+    .page-hero h1 { font-size:clamp(1.6rem,4vw,2.4rem); font-weight:900; margin-bottom:10px; }
+    .gradient-text {
+      background:linear-gradient(135deg,var(--accent1),var(--accent3),var(--accent2));
+      -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+    }
+    .page-hero p { color:var(--text-muted); font-size:1rem; }
+
+    /* 主容器 */
+    .main { max-width:800px; margin:0 auto; padding:0 24px 80px; position:relative; z-index:1; }
+
+    /* 钱包提示横幅 */
+    .wallet-banner {
+      background:rgba(201,169,110,.05); border:1px solid rgba(201,169,110,.2);
+      border-radius:var(--radius); padding:16px 20px; margin-bottom:28px;
+      display:flex; align-items:center; gap:12px;
+    }
+    .wallet-banner.hidden { display:none; }
+    .wallet-banner .warn-icon { font-size:1.4rem; flex-shrink:0; }
+    .wallet-banner p { font-size:.92rem; color:var(--text-muted); flex:1; }
+
+    /* 卡片 */
+    .form-card {
+      background:var(--bg-card); border:1px solid var(--border);
+      border-radius:16px; padding:28px 28px; margin-bottom:20px;
+      transition:border-color .2s; box-shadow: 0 2px 20px rgba(0,0,0,.15);
+    }
+    .card-header {
+      display:flex; align-items:center; gap:10px;
+      font-size:1.05rem; font-weight:800; margin-bottom:24px; color:var(--accent1);
+    }
+    .card-header-icon { font-size:1.3rem; }
+
+    /* 输入框通用 */
+    input[type=text], input[type=number], textarea {
+      background:var(--bg-input); border:1px solid var(--border);
+      border-radius:9px; padding:11px 14px; color:var(--text-main);
+      font-size:.92rem; font-family:var(--font); width:100%;
+      transition:border-color .2s, box-shadow .2s; outline:none;
+    }
+    input:focus, textarea:focus {
+      border-color:var(--border-focus); box-shadow:0 0 0 3px rgba(201,169,110,.06);
+    }
+    textarea { resize:vertical; min-height:88px; }
+    input::placeholder, textarea::placeholder { color: #4a4560; }
+
+    .form-group { display:flex; flex-direction:column; gap:6px; margin-bottom:18px; }
+    .form-label {
+      font-size:.85rem; font-weight:600; color:var(--text-main);
+      display:flex; align-items:center; gap:6px;
+    }
+    .form-hint { font-size:.78rem; color:var(--text-muted); margin-top:2px; }
+
+    /* 按钮通用 */
+    button { cursor:pointer; border:none; transition:all .2s; font-family:var(--font); }
+    .btn-row { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0; }
+    .btn-normal {
+      padding:9px 18px; border-radius:8px; font-size:.85rem; font-weight:600;
+    }
+    .btn-green { background:linear-gradient(135deg,#16a34a,#15803d); color:#fff; }
+    .btn-green:hover { opacity:0.9; }
+    .btn-blue { background:linear-gradient(135deg,#2563eb,#1d4ed8); color:#fff; }
+    .btn-orange { background:linear-gradient(135deg,#d97706,#b45309); color:#fff; }
+    .btn-purple { background:linear-gradient(135deg,#8b5cf6,#7c3aed); color:#fff; }
+    .btn-red { background:linear-gradient(135deg,#dc2626,#991b1b); color:#fff; }
+    .btn-gray { background:rgba(255,255,255,.06); color:var(--text-main); border:1px solid var(--border); }
+    .btn-gray:hover { border-color:var(--accent1); color:var(--accent1); }
+
+    /* 滑块分配 */
+    .alloc-grid { display:flex; flex-direction:column; gap:14px; margin-bottom:16px; }
+    .alloc-item {
+      background:rgba(255,255,255,.02); border:1px solid var(--border);
+      border-radius:10px; padding:14px 16px;
+    }
+    .alloc-header { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+    .alloc-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+    .alloc-name { font-size:.9rem; font-weight:700; flex:1; }
+    .alloc-pct  { font-size:1rem; font-weight:900; color:var(--accent1); min-width:42px; text-align:right; }
+    .alloc-bar-wrap { height:5px; background:rgba(255,255,255,.04); border-radius:50px; overflow:hidden; margin-bottom:8px; }
+    .alloc-bar { height:100%; border-radius:50%; transition:width .2s; }
+    input[type=range] {
+      -webkit-appearance:none; appearance:none;
+      width:100%; height:6px; border-radius:50px; outline:none; cursor:pointer;
+      background:rgba(255,255,255,.06); border:none; padding:0;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+      background:var(--accent1); border:2px solid #080812; cursor:pointer;
+    }
+
+    /* 状态盒子 */
+    .status-box {
+      background:rgba(0,0,0,.25); border-radius:8px; padding:12px;
+      font-size:.8rem; line-height:1.9; color:var(--text-body); margin:8px 0;
+    }
+    .log-box {
+      background:rgba(0,0,0,.3); border-radius:8px; padding:10px;
+      font-size:.78rem; color:var(--text-muted); max-height:120px; overflow-y:auto;
+      line-height:1.7; margin-top:12px; display:none;
+    }
+    .divider { border:none; border-top:1px solid rgba(255,255,255,.06); margin:20px 0; }
+
+    /* 弹窗 */
+    .modal-overlay {
+      position:fixed; inset:0; background:rgba(0,0,0,.85); backdrop-filter:blur(8px);
+      z-index:999; display:none; align-items:center; justify-content:center; padding:20px;
+    }
+    .modal-overlay.show { display:flex; }
+    .modal {
+      background:var(--bg-card); border:1px solid var(--border);
+      border-radius:20px; padding:28px 24px; max-width:460px; width:100%;
+      text-align:center; position:relative; animation:modal-in .25s ease;
+      max-height:85vh; display:flex; flex-direction:column;
+      box-shadow: 0 0 60px rgba(201,169,110,.08);
+    }
+    .modal-body-scroll {
+      flex:1; overflow-y:auto; min-height:0;
+      padding-right:4px; margin-right:-4px;
+    }
+    .modal-actions { flex-shrink:0; margin-top:14px; padding-top:14px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+    @keyframes modal-in { from{opacity:0;transform:scale(.92) translateY(20px)} to{opacity:1;transform:scale(1)} }
+    .modal-icon { font-size:3.5rem; margin-bottom:16px; }
+    .modal h3 { font-size:1.4rem; font-weight:900; margin-bottom:10px; color:var(--accent1); }
+    .modal p  { font-size:.92rem; color:var(--text-muted); margin-bottom:20px; }
+    .modal-status {
+      display:flex; align-items:center; justify-content:center; gap:8px;
+      font-size:.88rem; color:var(--text-muted); margin-bottom:24px;
+    }
+    .spinner {
+      width:16px; height:16px; border:2px solid rgba(255,255,255,.06);
+      border-top-color:var(--accent1); border-radius:50%;
+      animation:spin .7s linear infinite;
+    }
+    @keyframes spin { to{transform:rotate(360deg)} }
+
+    /* 响应式 */
+    @media(max-width:640px) {
+      .form-card { padding:20px 16px; }
+      nav { gap:8px; flex-wrap:wrap; height:auto; padding:10px 0; }
+      .btn-row { flex-direction:column; }
+    }
+  </style>
+  <script src="ethers.umd.min.js"></script>
+  <script src="contract_data.js?v=20260617"></script>
+</head>
+<body>
+<div class="stars" id="stars"></div>
+
+<header>
+  <nav>
+    <a class="logo" href="index.html">
+      <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" class="logo-icon-img">
+        <circle cx="50" cy="50" r="46" fill="#12122a" stroke="#c9a96e" stroke-width="2.5"/>
+        <circle cx="50" cy="50" r="38" fill="#1a1a35" stroke="#c9a96e" stroke-width="1" stroke-dasharray="4 4"/>
+        <ellipse cx="50" cy="40" rx="14" ry="11" fill="#c9a96e"/>
+        <ellipse cx="50" cy="42" rx="11" ry="7" fill="#1a1a35"/>
+        <path d="M40 28 Q32 14 44 20" stroke="#c9a96e" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+        <path d="M60 28 Q68 14 56 20" stroke="#c9a96e" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+        <ellipse cx="45" cy="40" rx="3.5" ry="3" fill="#c41e3a"/>
+        <ellipse cx="55" cy="40" rx="3.5" ry="3" fill="#c41e3a"/>
+        <circle cx="45" cy="40" r="1.2" fill="#ffd700"/>
+        <circle cx="55" cy="40" r="1.2" fill="#ffd700"/>
+        <path d="M36 42 Q24 44 20 54" stroke="#c9a96e" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+        <path d="M64 42 Q76 44 80 54" stroke="#c9a96e" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+        <path d="M38 52 Q50 60 62 52" stroke="#c9a96e" stroke-width="2" fill="none" stroke-linecap="round"/>
+      </svg>
+      <span>
+        <span class="logo-text-en">DRAGON MINT ADMIN</span>
+        <span class="logo-text-cn">仙尊法契管理台</span>
+      </span>
+    </a>
+    <div class="nav-right">
+      <span id="wallet-addr-display" class="wallet-addr" style="display:none"></span>
+      <button class="btn btn-outline-purple" id="btn-connect" onclick="connectWallet()">连接仙窍 📡</button>
+      <a href="index.html" class="btn btn-ghost">返回铸契首页</a>
+    </div>
+  </nav>
+</header>
+
+<div class="page-hero">
+  <h1>🛡️ <span class="gradient-text">仙尊法契管理台</span></h1>
+  <p>输入已铸就的法契地址，使用仙尊权限管理全部天规与铸炼功能</p>
+</div>
+
+<main class="main">
+  <div class="wallet-banner" id="wallet-banner">
+    <span class="warn-icon">🔮</span>
+    <p>请先连接您的仙窍（必须为法契部署者仙尊地址），方能管理法契</p>
+    <button class="btn btn-outline-purple" style="flex-shrink:0" onclick="connectWallet()">连接仙窍 📡</button>
+  </div>
+
+  <div class="form-card">
+    <div class="card-header"><span class="card-header-icon">🔗</span> 绑定法契</div>
+    <div class="form-group">
+      <label class="form-label">法契合约地址 <span class="required">*</span></label>
+      <input type="text" id="target-contract-addr" placeholder="0xXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" maxlength="42"/>
+      <span class="form-hint">输入您部署的 ModaMintToken 法契地址，点击绑定载入天道数据</span>
+    </div>
+    <div class="btn-row">
+      <button class="btn-normal btn-green" onclick="bindContract()">✅ 绑定法契并感知天道</button>
+    </div>
+  </div>
+
+  <div class="form-card" id="admin-main-panel" style="display:none">
+    <div class="card-header"><span class="card-header-icon">📊</span> 法契天道状态</div>
+    <div class="status-box" id="admin-status-box">
+      <span style="color:var(--text-muted)">点击上方绑定按钮感知天道...</span>
+    </div>
+    <div class="btn-row">
+      <button class="btn-normal btn-blue" onclick="adminRefreshStatus()">🔄 刷新天道状态</button>
+    </div>
+
+    <hr class="divider"/>
+
+    <div class="card-header" style="font-size:.95rem;margin-bottom:12px">💰 提取全部灵材</div>
+    <div class="form-hint" style="margin-bottom:10px">将法契合约内所有 BNB 灵材提取至仙尊洞府，仅 Owner 可调用</div>
+    <div class="btn-row">
+      <button class="btn-normal btn-orange" onclick="adminWithdrawBNB()">💸 withdrawBNB 提取全部灵材</button>
+    </div>
+
+    <hr class="divider"/>
+
+    <div class="card-header" style="font-size:.95rem;margin-bottom:12px">🏁 铸炼预售管理</div>
+    <div class="btn-row">
+      <button class="btn-normal btn-green" onclick="adminCompletePresale()">✅ 手动终止铸炼 + 注入仙液池</button>
+      <button class="btn-normal btn-blue" onclick="adminEnableTrading()">🔓 开启二级市场仙市交易</button>
+    </div>
+    <div class="form-hint">终止铸炼会自动将合约内全部BNB与预售代币注入流动仙液池</div>
+
+    <hr class="divider"/>
+
+    <div class="card-header" style="font-size:.95rem;margin-bottom:12px">⚙️ 天规税率调整</div>
+    <div class="form-row cols-2" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="form-group">
+        <label class="form-label">入道税率 (bps)</label>
+        <input id="admin-buy-tax" type="number" min="0" max="2500" placeholder="500" value="500"/>
+        <div class="btn-row"><button class="btn-normal btn-blue" onclick="adminSetBuyTax()">设定入道税</button></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">出尘税率 (bps)</label>
+        <input id="admin-sell-tax" type="number" min="0" max="2500" placeholder="500" value="500"/>
+        <div class="btn-row"><button class="btn-normal btn-blue" onclick="adminSetSellTax()">设定出尘税</button></div>
+      </div>
+    </div>
+
+    <div class="card-header" style="font-size:.95rem;margin-bottom:12px">📊 灵材分流天规分配（合计≤100%）</div>
+    <div class="alloc-grid">
+      <div class="alloc-item">
+        <div class="alloc-header">
+          <span class="alloc-dot" style="background:#f59e0b"></span>
+          <span class="alloc-name">🟡 仙府金库</span>
+          <span class="alloc-pct" id="admin-mkt-pct">0%</span>
+        </div>
+        <input id="admin-mkt-bps" type="range" min="0" max="10000" value="0" oninput="adminAllocUpdate('mkt')"/>
+      </div>
+      <div class="alloc-item">
+        <div class="alloc-header">
+          <span class="alloc-dot" style="background:#ef4444"></span>
+          <span class="alloc-name">🔴 天火焚炼</span>
+          <span class="alloc-pct" id="admin-burn-pct">0%</span>
+        </div>
+        <input id="admin-burn-bps" type="range" min="0" max="10000" value="0" oninput="adminAllocUpdate('burn')"/>
+      </div>
+      <div class="alloc-item">
+        <div class="alloc-header">
+          <span class="alloc-dot" style="background:#22c55e"></span>
+          <span class="alloc-name">🟢 道心分红</span>
+          <span class="alloc-pct" id="admin-div-pct">0%</span>
+        </div>
+        <input id="admin-div-bps" type="range" min="0" max="10000" value="0" oninput="adminAllocUpdate('div')"/>
+      </div>
+      <div class="alloc-item">
+        <div class="alloc-header">
+          <span class="alloc-dot" style="background:#3b82f6"></span>
+          <span class="alloc-name">🔵 仙液灌注</span>
+          <span class="alloc-pct" id="admin-liq-pct">0%</span>
+        </div>
+        <input id="admin-liq-bps" type="range" min="0" max="10000" value="0" oninput="adminAllocUpdate('liq')"/>
+      </div>
+    </div>
+    <div style="margin:10px 0;display:flex;justify-content:space-between">
+      <span id="admin-alloc-sum" style="font-size:.8rem;color:var(--text-muted)">合计: 0%</span>
+      <span id="admin-alloc-remain" style="font-size:.8rem;color:var(--success)">剩余: 100%</span>
+    </div>
+    <div class="btn-row">
+      <button class="btn-normal btn-purple" onclick="adminSaveAlloc()">💾 保存分流天规</button>
+    </div>
+
+    <hr class="divider"/>
+
+    <div class="card-header" style="font-size:.95rem;margin-bottom:12px">📈 道心分红配置</div>
+    <div class="form-group">
+      <label class="form-label">分红天限（最低持仓代币数量）</label>
+      <input id="admin-div-threshold" type="number" min="0" placeholder="1"/>
+      <div class="btn-row"><button class="btn-normal btn-green" onclick="adminSetDividendThreshold()">设定分红门槛</button></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn-normal btn-orange" onclick="adminProcessDividend()">🔄 单独炼化分红税</button>
+      <button class="btn-normal btn-blue" onclick="adminProcessLiquidity()">💧 单独炼化流动税</button>
+      <button class="btn-normal btn-purple" onclick="adminProcessAll()">⚡ 一键炼化全部税费</button>
+    </div>
+
+    <hr class="divider"/>
+
+    <div class="card-header" style="font-size:.95rem;margin-bottom:12px">📋 铸炼仙籍白名单管理</div>
+    <div class="btn-row">
+      <button class="btn-normal btn-purple" onclick="adminToggleWhitelistMint()">🔒 切换仙籍铸炼模式开关</button>
+      <span id="whitelist-mode-status" style="font-size:.8rem;color:var(--text-muted)"></span>
+    </div>
+    <div class="form-group">
+      <label class="form-label">批量洞府地址（每行一个）</label>
+      <textarea id="admin-whitelist-input" placeholder="0xaaaa...aaaa&#10;0xbbbb...bbbb"></textarea>
+      <div class="btn-row">
+        <button class="btn-normal btn-green" onclick="adminSetWhitelist(true)">✅ 批量录入仙籍</button>
+        <button class="btn-normal btn-red" onclick="adminSetWhitelist(false)">❌ 批量逐出仙籍</button>
+      </div>
+    </div>
+    <div class="form-row cols-2" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="form-group">
+        <label class="form-label">查询洞府是否在仙籍</label>
+        <input id="admin-wl-check-addr" placeholder="0x..."/>
+      </div>
+      <div class="btn-row" style="align-items:flex-end">
+        <button class="btn-normal btn-blue" onclick="adminCheckWhitelist()">🔍 查询</button>
+        <span id="wl-check-result" style="font-size:.8rem;color:var(--text-muted)"></span>
+      </div>
+    </div>
+
+    <hr class="divider"/>
+
+    <div class="card-header" style="font-size:.95rem;margin-bottom:12px">🪙 铸炼测试（仅调试）</div>
+    <div class="btn-row">
+      <button class="btn-normal btn-blue" onclick="adminMintTest(1)">铸炼1次测试</button>
+    </div>
+    <div id="admin-mint-result" class="form-hint"></div>
+
+    <hr class="divider"/>
+
+    <div class="card-header" style="font-size:.95rem;color:var(--danger);margin-bottom:12px">⚠️ 不可逆禁忌术</div>
+    <div class="form-hint" style="color:var(--danger)">放弃仙尊所有权后，所有管理员功能永久失效，无法恢复！</div>
+    <div class="btn-row">
+      <button class="btn-normal btn-red" onclick="adminRenounceOwnership()">🚨 永久放弃仙尊权柄</button>
+    </div>
+
+    <div id="admin-log" class="log-box"></div>
+  </div>
+</main>
+
+<!-- 通用弹窗 -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-body-scroll">
+      <div class="modal-icon" id="modal-icon">🛡️</div>
+      <h3 id="modal-title">操作提示</h3>
+      <p id="modal-desc"></p>
+      <div class="modal-status" id="modal-status">
+        <div class="spinner" id="modal-spinner"></div>
+        <span id="modal-status-text"></span>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-normal btn-gray" onclick="closeModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const BSC_CHAIN_ID = 56;
+const BSC_MAINNET = {
+  chainId: '0x' + BSC_CHAIN_ID.toString(16),
+  chainName: 'BNB Smart Chain Mainnet',
+  nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+  rpcUrls: ['https://bsc-dataseed.binance.org/'],
+  blockExplorerUrls: ['https://bscscan.com']
+};
+const BSC_TESTNET = {
+  chainId: '0x38',
+  chainName: 'BNB Smart Chain Testnet',
+  nativeCurrency: { name: 'tBNB', symbol: 'tBNB', decimals: 18 },
+  rpcUrls: ['https://data-seed-prebsc-1-s1.binance.org:8545/'],
+  blockExplorerUrls: ['https://testnet.bscscan.com']
+};
+
+let provider, signer, walletConnected = false, currentAccount = '';
+let isTestnet = false;
+let targetContract = null;
+let targetContractAddr = '';
+let adminAlloc = {mkt:0,burn:0,div:0,liq:0};
+
+// 星空背景
+(function(){
+  const w=document.getElementById('stars');
+  for(let i=0;i<180;i++){
+    const s=document.createElement('div'); s.className='star';
+    const sz=Math.random()*3+.5;
+    s.style.cssText=['width:'+sz+'px','height:'+sz+'px',
+      'left:'+Math.random()*100+'%','top:'+Math.random()*100+'%',
+      '--dur:'+(Math.random()*5+3).toFixed(1)+'s',
+      '--delay:'+(Math.random()*6).toFixed(1)+'s',
+      '--op:'+(Math.random()*.6+.3).toFixed(2)].join(';');
+    w.appendChild(s);
+  }
+})();
+
+function getWalletProvider(){
+  if(window.tokenpocket && window.tokenpocket.isTokenPocket) return window.tokenpocket;
+  if(window.ethereum) return window.ethereum;
+  return null;
+}
+
+async function switchToBSC(){
+  const wallet = getWalletProvider();
+  if(!wallet) throw new Error('未检测到钱包');
+  const targetChain = isTestnet ? BSC_TESTNET : BSC_MAINNET;
+  try {
+    await wallet.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: targetChain.chainId }] });
+  } catch(e){
+    if(e.code === 4902){
+      await wallet.request({ method: 'wallet_addEthereumChain', params: [targetChain] });
+    } else throw e;
+  }
+}
+
+async function connectWallet(){
+  const wallet = getWalletProvider();
+  if(!wallet){
+    alert('未检测到仙窍！\nMetaMask / TokenPocket');
+    return;
+  }
+  try {
+    await switchToBSC();
+    const accounts = await wallet.request({ method: 'eth_requestAccounts' });
+    if(!accounts.length) throw new Error('无洞府地址');
+    currentAccount = accounts[0];
+    provider = new ethers.providers.Web3Provider(wallet);
+    signer = provider.getSigner();
+    walletConnected = true;
+
+    const walletType = window.tokenpocket?.isTokenPocket ? 'TokenPocket' : 'MetaMask';
+    document.getElementById('btn-connect').textContent = walletType + ' ✓';
+    document.getElementById('wallet-addr-display').textContent = currentAccount.slice(0,6)+'...'+currentAccount.slice(-4);
+    document.getElementById('wallet-addr-display').style.display = 'inline';
+    document.getElementById('wallet-banner').classList.add('hidden');
+
+    const net = await provider.getNetwork();
+    isTestnet = net.chainId === 97;
+
+    wallet.on('accountsChanged', accts => {
+      if(!accts.length) disconnectWallet();
+      else {
+        currentAccount = accts[0];
+        signer = provider.getSigner();
+        document.getElementById('wallet-addr-display').textContent = currentAccount.slice(0,6)+'...'+currentAccount.slice(-4);
+      }
+    });
+    wallet.on('chainChanged', () => location.reload());
+  } catch(e){
+    alert('连接失败：'+(e.message||e));
+  }
+}
+
+function disconnectWallet(){
+  walletConnected = false; currentAccount = ''; provider = null; signer = null; targetContract = null;
+  document.getElementById('btn-connect').textContent = '连接仙窍 📡';
+  document.getElementById('wallet-addr-display').style.display = 'none';
+  document.getElementById('wallet-banner').classList.remove('hidden');
+  document.getElementById('admin-main-panel').style.display = 'none';
+}
+
+// 绑定合约
+async function bindContract(){
+  if(!walletConnected){ alert('请先连接仙窍'); return; }
+  const addr = document.getElementById('target-contract-addr').value.trim();
+  if(!addr || !addr.startsWith('0x') || addr.length !==42){ alert('请输入合法42位合约地址'); return; }
+  targetContractAddr = addr;
+  targetContract = new ethers.Contract(addr, CONTRACT_DATA.ABI, signer);
+  document.getElementById('admin-main-panel').style.display = 'block';
+  await adminRefreshStatus();
+  showModal('✅','法契绑定成功','已载入天道数据，可执行仙尊操作','done');
+}
+
+async function adminRefreshStatus(){
+  try {
+    const c = targetContract;
+    const [presaleActive, fillBNB, collectedBNB, tradeOpen, buyTax, sellTax, mkt, burn, div, liq] = await Promise.all([
+      c.presaleActive(), c.fillAmountBNB(), c.totalBNBCollected(), c.tradingIsEnabled(),
+      c.buyTaxBps(), c.sellTaxBps(), c.marketingBps(), c.burnBps(), c.dividendBps(), c.liquidityBps()
+    ]);
+    document.getElementById('admin-status-box').innerHTML =
+      `铸炼预售状态: <b style="color:${presaleActive?'#f59e0b':'#4caf50'}">${presaleActive?'进行中':'已结束'}</b><br/>`+
+      `二级市场仙市: <b style="color:${tradeOpen?'#4caf50':'#ef4444'}">${tradeOpen?'已开启':'未开启'}</b><br/>`+
+      `募集BNB上限: <b style="color:var(--accent1)">${ethers.utils.formatEther(fillBNB)} BNB</b><br/>`+
+      `当前已募集: <b style="color:var(--accent1)">${ethers.utils.formatEther(collectedBNB)} BNB</b><br/>`+
+      `买入税: ${buyTax/100}% | 卖出税: ${sellTax/100}%`;
+    // 同步分配滑块
+    document.getElementById('admin-mkt-bps').value = mkt;
+    document.getElementById('admin-burn-bps').value = burn;
+    document.getElementById('admin-div-bps').value = div;
+    document.getElementById('admin-liq-bps').value = liq;
+    adminAlloc.mkt = Number(mkt);
+    adminAlloc.burn = Number(burn);
+    adminAlloc.div = Number(div);
+    adminAlloc.liq = Number(liq);
+    adminAllocUpdate('');
+  } catch(e){
+    alert('刷新天道失败：'+(e.reason||e.message));
+  }
+}
+
+// 分配滑块逻辑
+function adminAllocUpdate(type){
+  const types = ['mkt','burn','div','liq'];
+  if(type){
+    const s = document.getElementById('admin-'+type+'-bps');
+    adminAlloc[type] = Number(s.value);
+    let total = adminAlloc.mkt + adminAlloc.burn + adminAlloc.div + adminAlloc.liq;
+    for(let t of types){
+      const el = document.getElementById('admin-'+t+'-bps');
+      const other = total - adminAlloc[t];
+      const maxRemain = 10000 - other;
+      if(adminAlloc[t] > maxRemain){
+        adminAlloc[t] = maxRemain;
+        el.value = maxRemain;
+      }
+      el.max = Math.min(Math.max(adminAlloc[t], maxRemain), 10000);
+      document.getElementById('admin-'+t+'-pct').textContent = (adminAlloc[t]/100).toFixed(0)+'%';
+    }
+  }
+  const sum = adminAlloc.mkt + adminAlloc.burn + adminAlloc.div + adminAlloc.liq;
+  document.getElementById('admin-alloc-sum').textContent = '合计: '+(sum/100).toFixed(0)+'%';
+  document.getElementById('admin-alloc-remain').textContent = '剩余: '+((10000-sum)/100).toFixed(0)+'%';
+}
+
+// 合约管理员方法
+async function adminWithdrawBNB(){
+  try{
+    const tx = await targetContract.withdrawBNB();
+    showModal('⏳','交易上链中','等待区块确认','waiting');
+    await tx.wait();
+    showModal('✅','提取完成','合约内全部BNB已转入仙尊洞府','done');
+  }catch(e){ showModal('⚠️','操作失败',e.reason||e.message,'error'); }
+}
+async function adminCompletePresale(){
+  try{
+    const tx = await targetContract.completePresale();
+    showModal('⏳','终止铸炼上链中','自动注入仙液池','waiting');
+    await tx.wait();
+    showModal('✅','铸炼已终止','仙液池自动注入完成','done');
+  }catch(e){ showModal('⚠️','失败',e.reason||e.message,'error'); }
+}
+async function adminEnableTrading(){
+  try{
+    const tx = await targetContract.enableTrading();
+    showModal('⏳','开启交易上链中','','waiting');
+    await tx.wait();
+    showModal('✅','仙市交易已开启','二级市场开放','done');
+  }catch(e){ showModal('⚠️','失败',e.reason||e.message,'error'); }
+}
+async function adminSetBuyTax(){
+  const v = Number(document.getElementById('admin-buy-tax').value);
+  try{ await targetContract.setBuyTaxBps(v); showModal('✅','买入税率更新','成功','done'); }
+  catch(e){ showModal('⚠️','设置失败',e.reason||e.message,'error'); }
+}
+async function adminSetSellTax(){
+  const v = Number(document.getElementById('admin-sell-tax').value);
+  try{ await targetContract.setSellTaxBps(v); showModal('✅','卖出税率更新','成功','done'); }
+  catch(e){ showModal('⚠️','设置失败',e.reason||e.message,'error'); }
+}
+async function adminSaveAlloc(){
+  try{
+    const tx = await targetContract.setTaxAllocation(adminAlloc.mkt, adminAlloc.burn, adminAlloc.div, adminAlloc.liq);
+    showModal('⏳','保存分流天规','','waiting');
+    await tx.wait();
+    showModal('✅','分流规则已保存','','done');
+  }catch(e){ showModal('⚠️','保存失败',e.reason||e.message,'error'); }
+}
+async function adminSetDividendThreshold(){
+  const val = document.getElementById('admin-div-threshold').value;
+  const bn = ethers.utils.parseEther(val);
+  try{ await targetContract.setDividendThreshold(bn); showModal('✅','分红门槛已设定','','done'); }
+  catch(e){ showModal('⚠️','设置失败',e.reason||e.message,'error'); }
+}
+async function adminProcessDividend(){
+  try{ await targetContract.processDividend(); showModal('✅','分红税费炼化完成','','done'); }
+  catch(e){ showModal('⚠️','炼化失败',e.reason||e.message,'error'); }
+}
+async function adminProcessLiquidity(){
+  try{ await targetContract.processLiquidity(); showModal('✅','流动税费炼化完成','','done'); }
+  catch(e){ showModal('⚠️','炼化失败',e.reason||e.message,'error'); }
+}
+async function adminProcessAll(){
+  try{ await targetContract.processAll(); showModal('✅','全部税费炼化完成','','done'); }
+  catch(e){ showModal('⚠️','炼化失败',e.reason||e.message,'error'); }
+}
+async function adminRenounceOwnership(){
+  if(!confirm('确定永久放弃仙尊权柄？不可逆！')) return;
+  try{
+    const tx = await targetContract.renounceOwnership();
+    showModal('⏳','放弃权限上链中','','waiting');
+    await tx.wait();
+    showModal('✅','仙尊权柄已永久放弃','无法再管理法契','done');
+  }catch(e){ showModal('⚠️','操作失败',e.reason||e.message,'error'); }
+}
+async function adminToggleWhitelistMint(){
+  const state = await targetContract.whitelistMintOnly();
+  await targetContract.setWhitelistMintOnly(!state);
+  const newState = await targetContract.whitelistMintOnly();
+  document.getElementById('whitelist-mode-status').textContent = '当前模式：'+(newState?'仅仙籍可铸炼':'全员可铸炼');
+  showModal('✅','仙籍模式切换成功','','done');
+}
+async function adminSetWhitelist(isAdd){
+  const text = document.getElementById('admin-whitelist-input').value.trim();
+  const addrs = text.split(/[\n,]/g).map(i=>i.trim()).filter(x=>x.startsWith('0x')&&x.length===42);
+  if(!addrs.length){ alert('无合法地址'); return; }
+  try{
+    await targetContract.setWhitelistBatch(addrs, isAdd);
+    showModal('✅',isAdd?'批量录入仙籍完成':'批量逐出仙籍完成','','done');
+  }catch(e){ showModal('⚠️','操作失败',e.reason||e.message,'error'); }
+}
+async function adminCheckWhitelist(){
+  const addr = document.getElementById('admin-wl-check-addr').value.trim();
+  if(!addr || addr.length!==42){ alert('地址非法'); return; }
+  const res = await targetContract.isWhitelisted(addr);
+  document.getElementById('wl-check-result').textContent = res?'✅ 在仙籍':'❌ 不在仙籍';
+}
+async function adminMintTest(qty){
+  try{
+    const cost = await targetContract.mintCostBNB();
+    const tx = await targetContract.mint(qty, {value: cost.mul(qty)});
+    await tx.wait();
+    document.getElementById('admin-mint-result').textContent = '✅ 铸炼'+qty+'次测试成功';
+  }catch(e){
+    document.getElementById('admin-mint-result').textContent = '❌ 铸炼失败：'+(e.reason||e.message);
+  }
+}
+
+// 弹窗控制
+function showModal(icon, title, desc, state){
+  document.getElementById('modal-icon').textContent = icon;
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-desc').textContent = desc;
+  document.getElementById('modal-spinner').style.display = state==='waiting' ? '' : 'none';
+  document.getElementById('modal-status-text').textContent = state==='waiting' ? '等待钱包确认' : '';
+  document.getElementById('modal').classList.add('show');
+}
+function closeModal(){
+  document.getElementById('modal').classList.remove('show');
+}
+</script>
+</body>
+</html>
