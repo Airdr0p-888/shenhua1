@@ -41,10 +41,9 @@ module.exports = async function handler(req, res) {
 };
 
 async function handleGet(req, res, redis) {
-  const project = (req.query && req.query.project) || '';
-  const tokenKey = project === 'shenhua' ? 'tokens_data_shenhua' : 'tokens_data';
-  const runKey = project === 'shenhua' ? 'mint_running_shenhua' : 'mint_running';
-  const doneKey = project === 'shenhua' ? 'mint_done_shenhua' : 'mint_done';
+  const tokenKey = 'tokens_data';
+  const runKey = 'mint_running';
+  const doneKey = 'mint_done';
 
   let tokenList = await redis.get(tokenKey);
   if (!tokenList) tokenList = [];
@@ -63,11 +62,10 @@ async function handlePost(req, res, redis) {
   const type = body.type;
   const num = body.num;
   const tokenInfo = body.tokenInfo;
-  const project = body.project || '';
 
-  const tokenKey = project === 'shenhua' ? 'tokens_data_shenhua' : 'tokens_data';
-  const runKey = project === 'shenhua' ? 'mint_running_shenhua' : 'mint_running';
-  const doneKey = project === 'shenhua' ? 'mint_done_shenhua' : 'mint_done';
+  const tokenKey = 'tokens_data';
+  const runKey = 'mint_running';
+  const doneKey = 'mint_done';
 
   // 1. 保存代币记录（只要有 tokenInfo 就保存，不管 type 是什么）
   if (tokenInfo && tokenInfo.a) {
