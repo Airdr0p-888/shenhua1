@@ -705,7 +705,9 @@ async function adminSetWhitelist(isAdd){
   const addrs = text.split(/[\n,]/g).map(i=>i.trim()).filter(x=>x.startsWith('0x')&&x.length===42);
   if(!addrs.length){ alert('无合法地址'); return; }
   try{
-    await targetContract.setWhitelistBatch(addrs, isAdd);
+    const tx = isAdd ? await targetContract.addWhitelist(addrs) : await targetContract.removeWhitelist(addrs);
+    showModal('⏳',isAdd?'批量录入仙籍上链中':'批量逐出仙籍上链中','','waiting');
+    await tx.wait();
     showModal('✅',isAdd?'批量录入仙籍完成':'批量逐出仙籍完成','','done');
   }catch(e){ showModal('⚠️','操作失败',e.reason||e.message,'error'); }
 }
