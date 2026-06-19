@@ -602,7 +602,8 @@ async function adminRefreshStatus(){
       mkt, burn, div, liq,
       whitelistOnly, mktWallet, costBNB, perMint,
       pendingMkt, pendingDiv, pendingLiq, pendingLiqBNB,
-      swapThreshold, mintLiqBps
+      swapThreshold, mintLiqBps,
+      totalPresaleTokens, totalLPTokens, presaleTokensGiven, lpTokensUsed, lpTokenPct
     ] = await Promise.all([
       c.presaleActive(), c.fillAmountBNB(), c.totalBNBCollected(), c.tradingActive(),
       c.buyTaxBps(), c.sellTaxBps(),
@@ -612,7 +613,10 @@ async function adminRefreshStatus(){
       c.pendingMarketingTokens(), c.pendingSwapForDividend(),
       c.pendingLiquidityTokens(), c.pendingLiquidityBNB(),
       c.dividendSwapThreshold(),
-      c.mintLiquidityBps()
+      c.mintLiquidityBps(),
+      c.totalPresaleTokens(), c.totalLPTokens(),
+      c.presaleTokensGiven(), c.lpTokensUsed(),
+      c.lpTokenPct()
     ]);
 
     var fill = parseFloat(ethers.utils.formatEther(fillBNB));
@@ -640,6 +644,11 @@ async function adminRefreshStatus(){
         '<span style="color:var(--accent1);font-weight:700">' + pct.toFixed(1) + '%</span>' +
         '<span>' + fill.toFixed(4) + ' BNB（上限）</span>' +
       '</div>' +
+      '<div style="margin-top:7px;font-size:.72rem;color:var(--text-muted);line-height:1.7">' +
+        '🪙 预售代币池：<b style="color:#4caf50">' + (presaleTokensGiven*1e-18).toFixed(4) + '</b> / ' + (totalPresaleTokens*1e-18).toFixed(4) + ' 枚（' + (totalPresaleTokens>0 ? (presaleTokensGiven*100/totalPresaleTokens).toFixed(1) : 0) + '%）｜ ' +
+        '💧 LP加池池：<b style="color:#3b82f6">' + (lpTokensUsed*1e-18).toFixed(4) + '</b> / ' + (totalLPTokens*1e-18).toFixed(4) + ' 枚（' + (totalLPTokens>0 ? (lpTokensUsed*100/totalLPTokens).toFixed(1) : 0) + '%）' +
+      '</div>' +
+      '<div style="margin-top:2px;font-size:.7rem;color:var(--text-muted)">LP占比设定：' + lpTokenPct + '% ｜ 铸炼加池BNB比例：' + (mintLiqBps/100).toFixed(0) + '%</div>' +
       '<div style="margin-top:6px;font-size:.78rem;color:var(--text-muted)">' +
         '每铸炼：<b style="color:var(--accent3)">' + cost + ' BNB</b> → 得 <b style="color:var(--accent3)">' + perMintNum + '</b> 枚 ｜ ' +
         '模式：<b style="color:' + (whitelistOnly ? '#f59e0b' : '#4caf50') + '">' + (whitelistOnly ? '📋 仅仙籍' : '🌐 全员公开') + '</b>' +

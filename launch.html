@@ -1355,7 +1355,7 @@ function buildParamsPreview(p, vanityResult, gasBNB){
     ['分红代币', p.dividendToken === ethers.constants.AddressZero ? 'WBNB (默认)' : p.dividendToken],
     ['分红最低持仓', ethers.utils.formatUnits(p.minHoldForDividend, 18) + ' 代币'],
     ['白名单 Mint', p.whitelistMintOnly ? '仅白名单可 Mint' : '公开 Mint'],
-    ['预售代币比例', p.presaleTokenPct + '% (LP: ' + (100 - p.presaleTokenPct) + '%)'],
+    ['预售代币比例', p.presaleTokenPct + '% (LP底池预留: ' + p.lpTokenPct + '%)'],
     ['低开比例', (p.mintLiquidityBps / 100) + '% (即时入池，剩余留天库)'],
   ];
   if(vanityResult && vanityResult.address){
@@ -1503,6 +1503,7 @@ function buildLaunchArgs(){
     dividendToken: dividendToken,
     minHoldForDividend: minHold,
     whitelistMintOnly: document.getElementById('whitelist-mint') ? document.getElementById('whitelist-mint').checked : false,
+    lpTokenPct: 100 - presalePct,   // 另一半代币用于 mint 时加底池
     mintLiquidityBps: mintLiquidityBps
   };
 }
@@ -1569,6 +1570,7 @@ async function launchToken(){
       p.marketingWallet, p.dividendToken,
       p.minHoldForDividend,
       p.presaleTokenPct,
+      p.lpTokenPct,
       p.whitelistMintOnly,
       await signer.getAddress()  // owner_ = 用户钱包
     );
