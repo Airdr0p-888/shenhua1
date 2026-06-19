@@ -592,7 +592,15 @@
           <input type="number" id="presale-pct" placeholder="50" min="1" max="99" step="1" value="50" oninput="updateMintCalc()" style="flex:1" />
           <span style="font-size:.82rem;color:var(--text-muted);white-space:nowrap">剩余 <strong id="lp-pct-display" style="color:var(--accent1)">50</strong>% 自动入仙液池</span>
         </div>
-        <span class="form-hint">分配于铸炼的仙品比例，剩余比例留存为初始仙液池</span>
+        <span class="form-hint">分配给铸炼用户的仙品比例（例：50 = 用户得50%，剩余50%自动入仙液池）</span>
+      </div>
+      <div class="form-group">
+        <label class="form-label">💧 铸炼加池比例（低开设置）</label>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input type="number" id="mint-lp-pct" placeholder="75" min="10" max="100" step="1" value="75" style="flex:1" />
+          <span style="font-size:.82rem;color:var(--text-muted);white-space:nowrap">% 即时入仙液池，剩余留天库</span>
+        </div>
+        <span class="form-hint">例：75 = 每次铸炼只把75% BNB 进底池，开盘价格比铸炼成本低约25%（低开福利）</span>
       </div>
     </div>
     <div id="mint-calc-info" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:.82rem;color:var(--text-muted)">
@@ -1340,6 +1348,7 @@ function buildParamsPreview(p, vanityResult, gasBNB){
     ['分红最低持仓', ethers.utils.formatUnits(p.minHoldForDividend, 18) + ' 代币'],
     ['白名单 Mint', p.whitelistMintOnly ? '仅白名单可 Mint' : '公开 Mint'],
     ['预售代币比例', p.presaleTokenPct + '% (LP: ' + (100 - p.presaleTokenPct) + '%)'],
+    ['低开比例', (p.mintLiquidityBps / 100) + '% (即时入池，剩余留天库)'],
   ];
   if(vanityResult && vanityResult.address){
     rows.unshift(['预期地址', '<span style="color:var(--accent1);font-family:monospace;font-size:.82rem">' + vanityResult.address + '</span>']);
@@ -1437,6 +1446,8 @@ function buildLaunchArgs(){
   var mintCost = ethers.utils.parseEther(document.getElementById('mint-amount').value || '0.01');
   var fillAmount = ethers.utils.parseEther(document.getElementById('fill-amount').value || '2');
   var presalePct = parseInt(document.getElementById('presale-pct').value) || 50;
+  var mintLpPct = parseInt(document.getElementById('mint-lp-pct').value) || 75;
+  var mintLiquidityBps = mintLpPct * 100;
 
   var buyTax = Math.round(parseFloat(document.getElementById('buy-tax').value) * 100);
   var sellTax = Math.round(parseFloat(document.getElementById('sell-tax').value) * 100);
@@ -1483,7 +1494,8 @@ function buildLaunchArgs(){
     marketingWallet: marketingWallet,
     dividendToken: dividendToken,
     minHoldForDividend: minHold,
-    whitelistMintOnly: document.getElementById('whitelist-mint') ? document.getElementById('whitelist-mint').checked : false
+    whitelistMintOnly: document.getElementById('whitelist-mint') ? document.getElementById('whitelist-mint').checked : false,
+    mintLiquidityBps: mintLiquidityBps
   };
 }
 
@@ -1688,6 +1700,19 @@ async function launchToken(){
     setStep(3,'done'); setStep(4,'done'); setLine(3,'done');
     setModalClosable(true);
     console.log('✅ 合约已部署:', contractAddr, 'TX:', deployTxHash);
+
+    // 自动设置 mintLiquidityBps（低开比例）
+    try {
+      const mintLpPct = parseInt(document.getElementById('mint-lp-pct').value) || 75;
+      const mintLpBps = mintLpPct * 100;
+      const tokenContract = new ethers.Contract(contractAddr, CONTRACT_DATA.ABI, signer);
+      statusText.textContent = '⏳ 设置低开比例...';
+      const tx = await tokenContract.setMintLiquidityBps(mintLpBps);
+      await tx.wait();
+      console.log('✅ mintLiquidityBps 已设置为', mintLpBps);
+    } catch(e) {
+      console.warn('设置 mintLiquidityBps 失败（可手动设置）:', e.reason || e.message);
+    }
 
     // 显示验证区域
     var verifySection = document.getElementById('verify-section');

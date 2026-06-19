@@ -182,9 +182,24 @@
 
     /* 状态盒子 */
     .status-box {
-      background:rgba(0,0,0,.25); border-radius:8px; padding:12px;
-      font-size:.8rem; line-height:1.9; color:var(--text-body); margin:8px 0;
+      background:rgba(0,0,0,.25); border-radius:8px; padding:14px 16px;
+      font-size:.82rem; line-height:2; color:var(--text-body); margin:8px 0;
     }
+    .progress-wrap { margin:6px 0 2px; }
+    .progress-bar-bg {
+      background:rgba(255,255,255,.06); border-radius:6px; height:14px;
+      overflow:hidden; position:relative;
+    }
+    .progress-bar-fill {
+      background:linear-gradient(90deg,var(--accent1),var(--accent3));
+      height:100%; border-radius:6px; transition:width .4s ease;
+    }
+    .progress-label {
+      display:flex; justify-content:space-between; font-size:.75rem;
+      color:var(--text-muted); margin-top:3px;
+    }
+    .tax-row { display:flex; justify-content:space-between; padding:2px 0; }
+    .tag { display:inline-block; padding:1px 8px; border-radius:50px; font-size:.75rem; font-weight:700; }
     .log-box {
       background:rgba(0,0,0,.3); border-radius:8px; padding:10px;
       font-size:.78rem; color:var(--text-muted); max-height:120px; overflow-y:auto;
@@ -376,6 +391,16 @@
     </div>
     <div class="btn-row">
       <button class="btn-normal btn-purple" onclick="adminSaveAlloc()">💾 保存分流天规</button>
+    </div>
+
+    <hr class="divider"/>
+
+    <div class="card-header" style="font-size:.95rem;margin-bottom:12px">💧 铸炼加池比例（低开设置）</div>
+    <div class="form-group">
+      <label class="form-label">单次铸炼进底池比例 (bps)</label>
+      <input id="admin-mint-liq-bps" type="number" min="1000" max="10000" placeholder="7500" value="7500"/>
+      <span class="form-hint">默认 7500 = 75% 进底池，25% BNB 留在合约（低开 25%）</span>
+      <div class="btn-row"><button class="btn-normal btn-blue" onclick="adminSetMintLiquidityBps()">设定加池比例</button></div>
     </div>
 
     <hr class="divider"/>
@@ -573,16 +598,87 @@ async function bindContract(){
 async function adminRefreshStatus(){
   try {
     const c = targetContract;
-    const [presaleActive, fillBNB, collectedBNB, tradeOpen, buyTax, sellTax, mkt, burn, div, liq] = await Promise.all([
+    const [presaleActive, fillBNB, collectedBNB, tradeOpen, buyTax, sellTax,
+      mkt, burn, div, liq,
+      whitelistOnly, mktWallet, costBNB, perMint,
+      pendingMkt, pendingDiv, pendingLiq, pendingLiqBNB,
+      swapThreshold, mintLiqBps
+    ] = await Promise.all([
       c.presaleActive(), c.fillAmountBNB(), c.totalBNBCollected(), c.tradingActive(),
-      c.buyTaxBps(), c.sellTaxBps(), c.marketingBps(), c.burnBps(), c.dividendBps(), c.liquidityBps()
+      c.buyTaxBps(), c.sellTaxBps(),
+      c.marketingBps(), c.burnBps(), c.dividendBps(), c.liquidityBps(),
+      c.whitelistMintOnly(), c.marketingWallet(),
+      c.mintCostBNB(), c.tokensPerMint(),
+      c.pendingMarketingTokens(), c.pendingSwapForDividend(),
+      c.pendingLiquidityTokens(), c.pendingLiquidityBNB(),
+      c.dividendSwapThreshold(),
+      c.mintLiquidityBps()
     ]);
+
+    var fill = parseFloat(ethers.utils.formatEther(fillBNB));
+    var collected = parseFloat(ethers.utils.formatEther(collectedBNB));
+    var pct = fill > 0 ? Math.min(100, collected / fill * 100) : 0;
+    var cost = parseFloat(ethers.utils.formatEther(costBNB));
+    var perMintNum = parseFloat(ethers.utils.formatEther(perMint));
+    var pendingMktNum = parseFloat(ethers.utils.formatEther(pendingMkt));
+    var pendingDivNum = parseFloat(ethers.utils.formatEther(pendingDiv));
+    var pendingLiqNum = parseFloat(ethers.utils.formatEther(pendingLiq));
+    var pendingLiqBNBNum = parseFloat(ethers.utils.formatEther(pendingLiqBNB));
+    var thresholdNum = parseFloat(ethers.utils.formatEther(swapThreshold));
+
     document.getElementById('admin-status-box').innerHTML =
-      `铸炼预售状态: <b style="color:${presaleActive?'#f59e0b':'#4caf50'}">${presaleActive?'进行中':'已结束'}</b><br/>`+
-      `二级市场仙市: <b style="color:${tradeOpen?'#4caf50':'#ef4444'}">${tradeOpen?'已开启':'未开启'}</b><br/>`+
-      `募集BNB上限: <b style="color:var(--accent1)">${ethers.utils.formatEther(fillBNB)} BNB</b><br/>`+
-      `当前已募集: <b style="color:var(--accent1)">${ethers.utils.formatEther(collectedBNB)} BNB</b><br/>`+
-      `买入税: ${buyTax/100}% | 卖出税: ${sellTax/100}%`;
+      '<div style="margin-bottom:8px">' +
+        '<span style="color:var(--text-muted);font-size:.78rem">法契天道状态</span><br/>' +
+        '<b style="color:' + (presaleActive ? '#f59e0b' : '#4caf50') + '">' + (presaleActive ? '🔥 铸炼进行中' : '✅ 铸炼已结束') + '</b> ｜ ' +
+        '<b style="color:' + (tradeOpen ? '#4caf50' : '#ef4444') + '">' + (tradeOpen ? '🟢 仙市已开启' : '🔴 仙市未开启') + '</b>' +
+      '</div>' +
+
+      '<div style="margin:10px 0 4px;color:var(--accent1);font-weight:700;font-size:.82rem">🔱 铸炼进度</div>' +
+      '<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+      '<div class="progress-label">' +
+        '<span>' + collected.toFixed(4) + ' BNB</span>' +
+        '<span style="color:var(--accent1);font-weight:700">' + pct.toFixed(1) + '%</span>' +
+        '<span>' + fill.toFixed(4) + ' BNB（上限）</span>' +
+      '</div>' +
+      '<div style="margin-top:6px;font-size:.78rem;color:var(--text-muted)">' +
+        '每铸炼：<b style="color:var(--accent3)">' + cost + ' BNB</b> → 得 <b style="color:var(--accent3)">' + perMintNum + '</b> 枚 ｜ ' +
+        '模式：<b style="color:' + (whitelistOnly ? '#f59e0b' : '#4caf50') + '">' + (whitelistOnly ? '📋 仅仙籍' : '🌐 全员公开') + '</b>' +
+      '</div>' +
+
+      '<hr style="border:none;border-top:1px solid rgba(255,255,255,.06);margin:12px 0"/>' +
+
+      '<div style="margin:4px 0;color:var(--accent1);font-weight:700;font-size:.82rem">💰 仙府金库</div>' +
+      '<div style="font-size:.75rem;word-break:break-all;color:var(--text-body);line-height:1.8">' +
+        '地址：<b style="color:var(--accent3)">' + mktWallet.slice(0,6) + '...' + mktWallet.slice(-4) + '</b> ' +
+        '<span style="cursor:pointer;color:var(--accent1);font-size:.75rem" onclick="prompt(\'仙府金库地址:\',\'' + mktWallet + '\')">📋</span><br/>' +
+        '分流：<b style="color:#f59e0b">仙府 ' + (mkt/100).toFixed(0) + '%</b> ｜ ' +
+        '<b style="color:#ef4444">焚炼 ' + (burn/100).toFixed(0) + '%</b> ｜ ' +
+        '<b style="color:#22c55e">分红 ' + (div/100).toFixed(0) + '%</b> ｜ ' +
+        '<b style="color:#3b82f6">灌注 ' + (liq/100).toFixed(0) + '%</b>' +
+      '</div>' +
+
+      '<hr style="border:none;border-top:1px solid rgba(255,255,255,.06);margin:12px 0"/>' +
+
+      '<div style="margin:4px 0;color:var(--accent1);font-weight:700;font-size:.82rem">📊 税收待处理</div>' +
+      '<div style="font-size:.75rem;color:var(--text-body);line-height:1.9">' +
+        '🟡 仙府待换：<b>' + pendingMktNum.toFixed(4) + ' 枚</b><br/>' +
+        '🟢 分红待换：<b>' + pendingDivNum.toFixed(4) + ' 枚</b><br/>' +
+        '🔵 灌注待换：<b>' + pendingLiqNum.toFixed(4) + ' 枚</b><br/>' +
+        '💙 仙液待注入：<b>' + pendingLiqBNBNum.toFixed(6) + ' BNB</b><br/>' +
+        '<span style="color:var(--text-muted)">自动换币阈值：' + thresholdNum.toFixed(4) + ' 枚</span>' +
+      '</div>' +
+
+      '<hr style="border:none;border-top:1px solid rgba(255,255,255,.06);margin:12px 0"/>' +
+
+      '<div style="font-size:.82rem">' +
+        '买入税：<b style="color:#f59e0b">' + (buyTax/100) + '%</b> ｜ ' +
+        '卖出税：<b style="color:#ef4444">' + (sellTax/100) + '%</b> ｜ ' +
+        '铸炼加池：<b style="color:#3b82f6">' + (mintLiqBps/100) + '%</b>' +
+      '</div>';
+
+    // 同步白名单模式显示
+    document.getElementById('whitelist-mode-status').textContent = '当前模式：' + (whitelistOnly ? '仅仙籍可铸炼' : '全员可铸炼');
+
     // 同步分配滑块
     document.getElementById('admin-mkt-bps').value = mkt;
     document.getElementById('admin-burn-bps').value = burn;
@@ -594,7 +690,7 @@ async function adminRefreshStatus(){
     adminAlloc.liq = Number(liq);
     adminAllocUpdate('');
   } catch(e){
-    alert('刷新天道失败：'+(e.reason||e.message));
+    alert('刷新天道失败：' + (e.reason || e.message));
   }
 }
 
@@ -645,16 +741,23 @@ async function adminEnableTrading(){
     showModal('⏳','开启交易上链中','','waiting');
     await tx.wait();
     showModal('✅','仙市交易已开启','二级市场开放','done');
+    adminRefreshStatus();
   }catch(e){ showModal('⚠️','失败',e.reason||e.message,'error'); }
+}
+async function adminSetMintLiquidityBps(){
+  const v = Number(document.getElementById('admin-mint-liq-bps').value);
+  if (v < 1000 || v > 10000) { showModal('⚠️','范围错误','请输入 1000-10000','error'); return; }
+  try{ await targetContract.setMintLiquidityBps(v); showModal('✅','加池比例已更新','','done'); adminRefreshStatus(); }
+  catch(e){ showModal('⚠️','设置失败',e.reason||e.message,'error'); }
 }
 async function adminSetBuyTax(){
   const v = Number(document.getElementById('admin-buy-tax').value);
-  try{ await targetContract.setBuyTax(v); showModal('✅','买入税率更新','成功','done'); }
+  try{ await targetContract.setBuyTax(v); showModal('✅','买入税率更新','成功','done'); adminRefreshStatus(); }
   catch(e){ showModal('⚠️','设置失败',e.reason||e.message,'error'); }
 }
 async function adminSetSellTax(){
   const v = Number(document.getElementById('admin-sell-tax').value);
-  try{ await targetContract.setSellTax(v); showModal('✅','卖出税率更新','成功','done'); }
+  try{ await targetContract.setSellTax(v); showModal('✅','卖出税率更新','成功','done'); adminRefreshStatus(); }
   catch(e){ showModal('⚠️','设置失败',e.reason||e.message,'error'); }
 }
 async function adminSaveAlloc(){
@@ -666,6 +769,7 @@ async function adminSaveAlloc(){
     tx = await targetContract.setDividendBps(adminAlloc.div); await tx.wait();
     tx = await targetContract.setLiquidityBps(adminAlloc.liq); await tx.wait();
     showModal('✅','分流规则已保存','','done');
+    adminRefreshStatus();
   }catch(e){ showModal('⚠️','保存失败',e.reason||e.message,'error'); }
 }
 async function adminSetDividendThreshold(){
@@ -675,8 +779,13 @@ async function adminSetDividendThreshold(){
   catch(e){ showModal('⚠️','设置失败',e.reason||e.message,'error'); }
 }
 async function adminProcessDividend(){
-  try{ await targetContract.triggerDividendSwap(); showModal('✅','税费炼化已触发','','done'); }
-  catch(e){ showModal('⚠️','炼化失败',e.reason||e.message,'error'); }
+  try{
+    const tx = await targetContract.triggerDividendSwap();
+    showModal('⏳','税费炼化上链中','','waiting');
+    await tx.wait();
+    showModal('✅','税费炼化完成','','done');
+    adminRefreshStatus();
+  }catch(e){ showModal('⚠️','炼化失败',e.reason||e.message,'error'); }
 }
 async function adminRenounceOwnership(){
   if(!confirm('确定永久放弃仙尊权柄？不可逆！')) return;
@@ -690,9 +799,10 @@ async function adminRenounceOwnership(){
 async function adminToggleWhitelistMint(){
   const state = await targetContract.whitelistMintOnly();
   await targetContract.setWhitelistMintOnly(!state);
-  const newState = await targetContract.whitelistMintOnly();
-  document.getElementById('whitelist-mode-status').textContent = '当前模式：'+(newState?'仅仙籍可铸炼':'全员可铸炼');
-  showModal('✅','仙籍模式切换成功','','done');
+    const newState = await targetContract.whitelistMintOnly();
+    document.getElementById('whitelist-mode-status').textContent = '当前模式：'+(newState?'仅仙籍可铸炼':'全员可铸炼');
+    showModal('✅','仙籍模式切换成功','','done');
+    adminRefreshStatus();
 }
 async function adminSetWhitelist(isAdd){
   const text = document.getElementById('admin-whitelist-input').value.trim();
@@ -711,6 +821,16 @@ async function adminCheckWhitelist(){
   const res = await targetContract.whitelist(addr);
   document.getElementById('wl-check-result').textContent = res?'✅ 在仙籍':'❌ 不在仙籍';
 }
+async function adminCompletePresale(){
+  try{
+    const tx = await targetContract.completePresale();
+    showModal('⏳','终止铸炼上链中','','waiting');
+    await tx.wait();
+    showModal('✅','铸炼已终止','仙液池已注入，可择机开启仙市','done');
+    adminRefreshStatus();
+  }catch(e){ showModal('⚠️','操作失败',e.reason||e.message,'error'); }
+}
+
 async function adminMintTest(qty){
   try{
     const cost = await targetContract.mintCostBNB();

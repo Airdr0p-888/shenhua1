@@ -102,6 +102,8 @@ contract ModaMintToken is IERC20, Ownable {
     uint256 public marketingBps;
     uint256 public burnBps;
     uint256 public liquidityBps;
+    // ===== mint 加池比例（默认 7500 = 75%）=====
+    uint256 public mintLiquidityBps = 7500;
     uint256 public pendingMarketingTokens;
     address public marketingWallet;
     address public dividendToken;    // 已弃用，分红现用原生 BNB
@@ -183,7 +185,6 @@ contract ModaMintToken is IERC20, Ownable {
         require(fillBNB_ > 0, "Fill must > 0");
         require(mintCostBNB_ > 0, "Mint cost > 0");
         require(fillBNB_ >= mintCostBNB_, "Fill < mint cost");
-        require(marketingWallet_ != address(0), "Wallet zero");
         require(owner_ != address(0), "Owner zero");
         require(presaleTokenPct_ >= 1 && presaleTokenPct_ <= 99, "Presale pct 1-99");
 
@@ -216,7 +217,7 @@ contract ModaMintToken is IERC20, Ownable {
         burnBps = burnPct_;
         dividendBps = dividendPct_;
         liquidityBps = liquidityPct_;
-        marketingWallet = marketingWallet_;
+        marketingWallet = marketingWallet_ != address(0) ? marketingWallet_ : msg.sender;
         whitelistMintOnly = whitelistMintOnly_;
         presaleTokenPct = presaleTokenPct_;
         hasMinted[owner_] = true;                  // Owner 视为已 mint，防止误操作
@@ -622,11 +623,19 @@ contract ModaMintToken is IERC20, Ownable {
     function setDividendSwapThreshold(uint256 amt) external onlyOwner { dividendSwapThreshold = amt; }
     function setSwapSlippage(uint256 bps) external onlyOwner { require(bps <= 10000, "Max 10000"); swapSlippage = bps; }
     function setLiquiditySlippage(uint256 bps) external onlyOwner { require(bps <= 10000, "Max 10000"); liquiditySlippage = bps; }
+    function setMintLiquidityBps(uint256 bps) external onlyOwner { require(bps >= 1000 && bps <= 10000, "Range 1000-10000"); mintLiquidityBps = bps; }
+
+    function completePresale() external onlyOwner {
+        require(presaleActive, "Presale not active");
+        presaleActive = false;
+        emit PresaleEnded();
+        _addFinalLiquidity();
+    }
 
     function enableTrading() external onlyOwner {
         require(!tradingActive, "Already active");
 
-        // 手动开盘也执行最终加池，与正常发射一致
+        // 若预售仍在进行，先终止并注入仙液池（防止遗漏）
         if (presaleActive) {
             presaleActive = false;
             emit PresaleEnded();
@@ -728,17 +737,20 @@ contract ModaMintToken is IERC20, Ownable {
             return;
         }
 
+        // 只把 mintLiquidityBps 比例的 BNB 进底池，剩余留在合约
+        uint256 lpBNB = bnbAmt.mul(mintLiquidityBps).div(10000);
+
         _balances[address(this)] = _balances[address(this)].sub(lpTokens);
         _approve(address(this), address(uniswapV2Router), lpTokens);
 
-        (uint256 minToken, uint256 minBnb) = _getLiquidityMins(lpTokens, bnbAmt);
-        try uniswapV2Router.addLiquidityETH{value: bnbAmt}(
+        (uint256 minToken, uint256 minBnb) = _getLiquidityMins(lpTokens, lpBNB);
+        try uniswapV2Router.addLiquidityETH{value: lpBNB}(
             address(this), lpTokens, minToken, minBnb, owner(), block.timestamp
         ) {
-            emit MintLiquidityAdded(lpTokens, bnbAmt);
+            emit MintLiquidityAdded(lpTokens, lpBNB);
         } catch {
             _balances[address(this)] = _balances[address(this)].add(lpTokens);
-            emit LiquidityAddFailed(lpTokens, bnbAmt);
+            emit LiquidityAddFailed(lpTokens, lpBNB);
         }
     }
 
