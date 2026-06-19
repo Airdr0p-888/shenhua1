@@ -233,7 +233,7 @@
     }
   </style>
   <script src="ethers.umd.min.js"></script>
-  <script src="contract_data.js?v=20260617"></script>
+  <script src="contract_data.js?v=20260619"></script>
 </head>
 <body>
 <div class="stars" id="stars"></div>
@@ -387,9 +387,8 @@
       <div class="btn-row"><button class="btn-normal btn-green" onclick="adminSetDividendThreshold()">设定分红门槛</button></div>
     </div>
     <div class="btn-row">
-      <button class="btn-normal btn-orange" onclick="adminProcessDividend()">🔄 单独炼化分红税</button>
-      <button class="btn-normal btn-blue" onclick="adminProcessLiquidity()">💧 单独炼化流动税</button>
-      <button class="btn-normal btn-purple" onclick="adminProcessAll()">⚡ 一键炼化全部税费</button>
+      <button class="btn-normal btn-orange" onclick="adminProcessDividend()">🔄 触发税费炼化上链</button>
+      <button class="btn-normal btn-blue" onclick="adminWithdrawPresaleBNB()" style="display:none">💸 提取预售BNB（应急）</button>
     </div>
 
     <hr class="divider"/>
@@ -575,7 +574,7 @@ async function adminRefreshStatus(){
   try {
     const c = targetContract;
     const [presaleActive, fillBNB, collectedBNB, tradeOpen, buyTax, sellTax, mkt, burn, div, liq] = await Promise.all([
-      c.presaleActive(), c.fillAmountBNB(), c.totalBNBCollected(), c.tradingIsEnabled(),
+      c.presaleActive(), c.fillAmountBNB(), c.totalBNBCollected(), c.tradingActive(),
       c.buyTaxBps(), c.sellTaxBps(), c.marketingBps(), c.burnBps(), c.dividendBps(), c.liquidityBps()
     ]);
     document.getElementById('admin-status-box').innerHTML =
@@ -632,13 +631,13 @@ async function adminWithdrawBNB(){
     showModal('✅','提取完成','合约内全部BNB已转入仙尊洞府','done');
   }catch(e){ showModal('⚠️','操作失败',e.reason||e.message,'error'); }
 }
-async function adminCompletePresale(){
+async function adminWithdrawPresaleBNB(){
   try{
-    const tx = await targetContract.completePresale();
-    showModal('⏳','终止铸炼上链中','自动注入仙液池','waiting');
+    const tx = await targetContract.withdrawPresaleBNB();
+    showModal('⏳','提取预售BNB上链中','','waiting');
     await tx.wait();
-    showModal('✅','铸炼已终止','仙液池自动注入完成','done');
-  }catch(e){ showModal('⚠️','失败',e.reason||e.message,'error'); }
+    showModal('✅','预售BNB提取完成','','done');
+  }catch(e){ showModal('⚠️','提取失败',e.reason||e.message,'error'); }
 }
 async function adminEnableTrading(){
   try{
@@ -650,38 +649,33 @@ async function adminEnableTrading(){
 }
 async function adminSetBuyTax(){
   const v = Number(document.getElementById('admin-buy-tax').value);
-  try{ await targetContract.setBuyTaxBps(v); showModal('✅','买入税率更新','成功','done'); }
+  try{ await targetContract.setBuyTax(v); showModal('✅','买入税率更新','成功','done'); }
   catch(e){ showModal('⚠️','设置失败',e.reason||e.message,'error'); }
 }
 async function adminSetSellTax(){
   const v = Number(document.getElementById('admin-sell-tax').value);
-  try{ await targetContract.setSellTaxBps(v); showModal('✅','卖出税率更新','成功','done'); }
+  try{ await targetContract.setSellTax(v); showModal('✅','卖出税率更新','成功','done'); }
   catch(e){ showModal('⚠️','设置失败',e.reason||e.message,'error'); }
 }
 async function adminSaveAlloc(){
   try{
-    const tx = await targetContract.setTaxAllocation(adminAlloc.mkt, adminAlloc.burn, adminAlloc.div, adminAlloc.liq);
-    showModal('⏳','保存分流天规','','waiting');
-    await tx.wait();
+    // 合约无批量设置函数，逐个调用（每个函数内部会校验总和 ≤ 10000）
+    let tx;
+    tx = await targetContract.setMarketingBps(adminAlloc.mkt); await tx.wait();
+    tx = await targetContract.setBurnBps(adminAlloc.burn); await tx.wait();
+    tx = await targetContract.setDividendBps(adminAlloc.div); await tx.wait();
+    tx = await targetContract.setLiquidityBps(adminAlloc.liq); await tx.wait();
     showModal('✅','分流规则已保存','','done');
   }catch(e){ showModal('⚠️','保存失败',e.reason||e.message,'error'); }
 }
 async function adminSetDividendThreshold(){
   const val = document.getElementById('admin-div-threshold').value;
   const bn = ethers.utils.parseEther(val);
-  try{ await targetContract.setDividendThreshold(bn); showModal('✅','分红门槛已设定','','done'); }
+  try{ await targetContract.setMinHoldForDividend(bn); showModal('✅','分红门槛已设定','','done'); }
   catch(e){ showModal('⚠️','设置失败',e.reason||e.message,'error'); }
 }
 async function adminProcessDividend(){
-  try{ await targetContract.processDividend(); showModal('✅','分红税费炼化完成','','done'); }
-  catch(e){ showModal('⚠️','炼化失败',e.reason||e.message,'error'); }
-}
-async function adminProcessLiquidity(){
-  try{ await targetContract.processLiquidity(); showModal('✅','流动税费炼化完成','','done'); }
-  catch(e){ showModal('⚠️','炼化失败',e.reason||e.message,'error'); }
-}
-async function adminProcessAll(){
-  try{ await targetContract.processAll(); showModal('✅','全部税费炼化完成','','done'); }
+  try{ await targetContract.triggerDividendSwap(); showModal('✅','税费炼化已触发','','done'); }
   catch(e){ showModal('⚠️','炼化失败',e.reason||e.message,'error'); }
 }
 async function adminRenounceOwnership(){
@@ -714,17 +708,22 @@ async function adminSetWhitelist(isAdd){
 async function adminCheckWhitelist(){
   const addr = document.getElementById('admin-wl-check-addr').value.trim();
   if(!addr || addr.length!==42){ alert('地址非法'); return; }
-  const res = await targetContract.isWhitelisted(addr);
+  const res = await targetContract.whitelist(addr);
   document.getElementById('wl-check-result').textContent = res?'✅ 在仙籍':'❌ 不在仙籍';
 }
 async function adminMintTest(qty){
   try{
     const cost = await targetContract.mintCostBNB();
-    const tx = await targetContract.mint(qty, {value: cost.mul(qty)});
-    await tx.wait();
+    showModal('⏳','铸炼测试上链中','共 '+qty+' 笔，每笔 '+ethers.utils.formatEther(cost)+' BNB','waiting');
+    for(let i=0;i<qty;i++){
+      const tx = await targetContract.mint({value: cost});
+      await tx.wait();
+    }
     document.getElementById('admin-mint-result').textContent = '✅ 铸炼'+qty+'次测试成功';
+    closeModal();
   }catch(e){
     document.getElementById('admin-mint-result').textContent = '❌ 铸炼失败：'+(e.reason||e.message);
+    closeModal();
   }
 }
 

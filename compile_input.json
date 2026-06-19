@@ -1,0 +1,21 @@
+{
+  "language": "Solidity",
+  "sources": {
+    "ModaMintToken.sol": {
+      "urls": ["ModaMintToken.sol"]
+    }
+  },
+  "settings": {
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "viaIR": true,
+    "evmVersion": "paris",
+    "outputSelection": {
+      "*": {
+        "*": ["abi", "evm.bytecode.object", "evm.deployedBytecode.object"]
+      }
+    }
+  }
+}
