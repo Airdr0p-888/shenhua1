@@ -597,7 +597,7 @@
       <div class="form-group">
         <label class="form-label">💧 铸炼加池比例（低开设置）</label>
         <div style="display:flex;align-items:center;gap:10px">
-          <input type="number" id="mint-lp-pct" placeholder="75" min="10" max="100" step="1" value="75" style="flex:1" />
+          <input type="number" id="mint-lp-pct" placeholder="75" min="10" max="100" step="1" value="75" oninput="updateMintCalc()" style="flex:1;min-width:120px" />
           <span style="font-size:.82rem;color:var(--text-muted);white-space:nowrap">% 即时入仙液池，剩余留天库</span>
         </div>
         <span class="form-hint">例：75 = 每次铸炼只把75% BNB 进底池，开盘价格比铸炼成本低约25%（低开福利）</span>
@@ -607,6 +607,7 @@
       <span>📦 总铸炼次数：<strong id="calc-mint-count" style="color:var(--accent1)">200</strong></span>
       <span>🪙 每次铸炼获得：<strong id="calc-tokens-per-mint" style="color:var(--accent1)">5,000,000</strong></span>
       <span>💰 每仙品代价：<strong id="calc-price-per-token" style="color:var(--accent1)">0.000000002 BNB</strong></span>
+      <span id="calc-low-open" style="color:#f59e0b;font-weight:600"></span>
     </div>
 
     <!-- 法契地址尾号 -->
@@ -1244,15 +1245,22 @@ function updateMintCalc(){
   var mintAmt = parseFloat(document.getElementById('mint-amount').value) || 0;
   var fillAmt = parseFloat(document.getElementById('fill-amount').value) || 0;
   var presalePct = parseFloat(document.getElementById('presale-pct').value) || 0;
+  var mintLpPct = parseFloat(document.getElementById('mint-lp-pct').value) || 75;
   document.getElementById('lp-pct-display').textContent = (100 - presalePct).toFixed(0);
   if(supply>0 && mintAmt>0 && fillAmt>0){
     var mintCount = Math.floor(fillAmt / mintAmt);
     var presaleTokens = supply * presalePct / 100;
     var perMint = Math.floor(presaleTokens / mintCount);
     var pricePer = mintAmt / perMint;
+    // 低开折扣计算
+    var openPrice = (mintLpPct > 0) ? (fillAmt * mintLpPct / 100) / (supply * (100 - presalePct) / 100) : pricePer;
+    var discount = (openPrice > 0) ? (pricePer / openPrice * 100).toFixed(1) : '0';
+    var lowOpenPct = (100 - discount).toFixed(1);
     document.getElementById('calc-mint-count').textContent = mintCount;
     document.getElementById('calc-tokens-per-mint').textContent = perMint.toLocaleString();
     document.getElementById('calc-price-per-token').textContent = pricePer.toFixed(9) + ' BNB';
+    var el = document.getElementById('calc-low-open');
+    if(el) el.textContent = '📉 低开约 ' + lowOpenPct + '%（折扣 ' + discount + '%）';
     document.getElementById('mint-calc-info').style.display = 'flex';
   }
 }
