@@ -603,7 +603,8 @@ async function adminRefreshStatus(){
       whitelistOnly, mktWallet, costBNB, perMint,
       pendingMkt, pendingDiv, pendingLiq, pendingLiqBNB,
       swapThreshold, mintLiqBps,
-      totalPresaleTokens, totalLPTokens, presaleTokensGiven, lpTokensUsed, lpTokenPct
+      totalPresaleTokens, totalLPTokens, presaleTokensGiven, lpTokensUsed, lpTokenPct,
+      contractTokenBal, contractBnbBal
     ] = await Promise.all([
       c.presaleActive(), c.fillAmountBNB(), c.totalBNBCollected(), c.tradingActive(),
       c.buyTaxBps(), c.sellTaxBps(),
@@ -616,7 +617,9 @@ async function adminRefreshStatus(){
       c.mintLiquidityBps(),
       c.totalPresaleTokens(), c.totalLPTokens(),
       c.presaleTokensGiven(), c.lpTokensUsed(),
-      c.lpTokenPct()
+      c.lpTokenPct(),
+      c.balanceOf(c.address),
+      provider.getBalance(c.address)
     ]);
 
     var fill = parseFloat(ethers.utils.formatEther(fillBNB));
@@ -629,12 +632,19 @@ async function adminRefreshStatus(){
     var pendingLiqNum = parseFloat(ethers.utils.formatEther(pendingLiq));
     var pendingLiqBNBNum = parseFloat(ethers.utils.formatEther(pendingLiqBNB));
     var thresholdNum = parseFloat(ethers.utils.formatEther(swapThreshold));
+    var contractTokenNum = parseFloat(ethers.utils.formatEther(contractTokenBal));
+    var contractBnbNum = parseFloat(ethers.utils.formatEther(contractBnbBal));
 
     document.getElementById('admin-status-box').innerHTML =
       '<div style="margin-bottom:8px">' +
         '<span style="color:var(--text-muted);font-size:.78rem">法契天道状态</span><br/>' +
         '<b style="color:' + (presaleActive ? '#f59e0b' : '#4caf50') + '">' + (presaleActive ? '🔥 铸炼进行中' : '✅ 铸炼已结束') + '</b> ｜ ' +
         '<b style="color:' + (tradeOpen ? '#4caf50' : '#ef4444') + '">' + (tradeOpen ? '🟢 仙市已开启' : '🔴 仙市未开启') + '</b>' +
+      '</div>' +
+
+      '<div style="display:flex;gap:16px;margin:6px 0 4px;font-size:.72rem;color:var(--text-muted)">' +
+        '<span>🪙 合约代币余额：<b style="color:#e8b84b">' + contractTokenNum.toFixed(4) + ' 枚</b></span>' +
+        '<span>💛 合约 BNB 余额：<b style="color:#f59e0b">' + contractBnbNum.toFixed(6) + ' BNB</b></span>' +
       '</div>' +
 
       '<div style="margin:10px 0 4px;color:var(--accent1);font-weight:700;font-size:.82rem">🔱 铸炼进度</div>' +
