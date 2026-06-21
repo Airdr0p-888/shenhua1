@@ -247,7 +247,40 @@
       .btn-row { flex-direction:column; }
     }
   </style>
-  <script src="ethers.umd.min.js"></script>
+  <script src="ethers.umd.min.js">
+async function adminToggleAutoOpen() {
+  try {
+    const current = await targetContract.autoOpenOnFill();
+    const tx = await targetContract.setAutoOpenOnFill(!current);
+    await tx.wait();
+    showModal('✅', !current ? '已开启 Mint满自动开盘' : '已关闭 Mint满自动开盘', '', 'done');
+    adminRefreshStatus();
+  } catch(e) { showModal('⚠️', '设置失败', e.reason||e.message, 'error'); }
+}
+async function adminSetTradingOpenTime() {
+  const dtStr = document.getElementById('admin-open-time').value;
+  if (!dtStr) { alert('请选择开盘时间'); return; }
+  // dtStr 格式 "2026-06-21T10:00"，视为北京时间（UTC+8）
+  const d = new Date(dtStr + '+08:00');
+  const ts = Math.floor(d.getTime() / 1000);
+  if (!ts || ts < Date.now()/1000) { alert('时间必须晚于当前时间'); return; }
+  try {
+    const tx = await targetContract.setTradingOpenTime(ts);
+    await tx.wait();
+    showModal('✅', '定时开盘已设定', '', 'done');
+    adminRefreshStatus();
+  } catch(e) { showModal('⚠️', '设定失败', e.reason||e.message, 'error'); }
+}
+async function adminCancelTradingOpenTime() {
+  try {
+    const tx = await targetContract.setTradingOpenTime(0);
+    await tx.wait();
+    showModal('✅', '定时开盘已取消', '', 'done');
+    adminRefreshStatus();
+  } catch(e) { showModal('⚠️', '操作失败', e.reason||e.message, 'error'); }
+}
+
+</script>
   <script src="contract_data.js?v=20260619b"></script>
 </head>
 <body>
@@ -327,12 +360,53 @@
 
     <hr class="divider"/>
 
+    <div class="card-header" style="font-size:.95rem;margin-bottom:12px">💧 手动提取加池</div>
+    <div class="form-hint" style="margin-bottom:8px">当铸炼终止后加池失败，可将 BNB 与代币分别提出，再前往 PancakeSwap 手动加池</div>
+    <div id="admin-manual-lp-info" style="background:rgba(0,0,0,.25);border-radius:10px;padding:12px;margin-bottom:12px;font-size:.82rem;color:var(--text-muted);">
+      绑定合约后显示余额...
+    </div>
+    <div class="btn-row" style="gap:8px;flex-wrap:wrap;">
+      <button class="btn-normal btn-orange" onclick="adminWithdrawPresaleBNB()" style="font-size:.85rem;padding:8px 16px;">📤 提取全部 BNB</button>
+      <button class="btn-normal btn-blue" onclick="adminWithdrawAllTokens()" style="font-size:.85rem;padding:8px 16px;">📤 提取全部代币</button>
+      <button class="btn-normal" onclick="window.open('https://pancakeswap.finance/v2/add/BNB/'+targetContractAddr,'_blank')" style="background:linear-gradient(135deg,#e8b84b,#c9a96e);color:#080812;border:none;font-size:.85rem;padding:8px 16px;font-weight:700;">🔗 前往 PancakeSwap 加池</button>
+    </div>
+    <div class="form-hint" style="margin-top:8px;">操作顺序：① 提取BNB → ② 提取代币 → ③ 前往PancakeSwap手动添加V2流动性</div>
+
+    <hr class="divider"/>
+
     <div class="card-header" style="font-size:.95rem;margin-bottom:12px">🏁 铸炼预售管理</div>
     <div class="btn-row">
       <button class="btn-normal btn-green" onclick="adminCompletePresale()">✅ 手动终止铸炼 + 注入仙液池</button>
       <button class="btn-normal btn-blue" onclick="adminEnableTrading()">🔓 开启二级市场仙市交易</button>
     </div>
     <div class="form-hint">终止铸炼会自动将合约内全部BNB与预售代币注入流动仙液池</div>
+
+    <hr class="divider"/>
+
+    <hr class="divider"/>
+
+    <div class="card-header" style="font-size:.95rem;margin-bottom:12px">🔔 开盘设置</div>
+
+    <div style="background:rgba(0,0,0,.25);border-radius:10px;padding:14px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+        <button id="admin-auto-open-btn" onclick="adminToggleAutoOpen()" style="padding:6px 14px;border-radius:6px;cursor:pointer;font-size:.8rem;font-weight:600;border:none;"></button>
+        <span id="admin-auto-open-status" style="font-size:.75rem;"></span>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:6px;">🕐 定时开盘（北京时间）</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="datetime-local" id="admin-open-time" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:6px 10px;color:var(--text-body);font-size:.82rem;"/>
+          <button onclick="adminSetTradingOpenTime()" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:.8rem;font-weight:600;">设定定时开盘</button>
+          <button onclick="adminCancelTradingOpenTime()" style="background:rgba(255,255,255,.08);color:var(--text-muted);border:1px solid rgba(255,255,255,.1);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:.78rem;">取消定时</button>
+        </div>
+        <div id="admin-open-time-display" style="font-size:.75rem;color:var(--text-muted);margin-top:6px;"></div>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button onclick="adminEnableTrading()" style="background:linear-gradient(135deg,#16a34a,#22c55e);color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:700;box-shadow:0 2px 10px rgba(22,163,74,.35)">🔓 手动开盘</button>
+      </div>
+    </div>
 
     <hr class="divider"/>
 
@@ -598,7 +672,7 @@ async function bindContract(){
 async function adminRefreshStatus(){
   try {
     const c = targetContract;
-    const [presaleActive, fillBNB, collectedBNB, tradeOpen, buyTax, sellTax,
+    const [presaleActive, fillBNB, collectedBNB, tradeOpen, autoOpen, openTime, buyTax, sellTax,
       mkt, burn, div, liq,
       whitelistOnly, mktWallet, costBNB, perMint,
       pendingMkt, pendingDiv, pendingLiq, pendingLiqBNB,
@@ -607,6 +681,7 @@ async function adminRefreshStatus(){
       contractTokenBal, contractBnbBal
     ] = await Promise.all([
       c.presaleActive(), c.fillAmountBNB(), c.totalBNBCollected(), c.tradingActive(),
+      c.autoOpenOnFill(), c.tradingOpenTime(),
       c.buyTaxBps(), c.sellTaxBps(),
       c.marketingBps(), c.burnBps(), c.dividendBps(), c.liquidityBps(),
       c.whitelistMintOnly(), c.marketingWallet(),
@@ -634,6 +709,41 @@ async function adminRefreshStatus(){
     var thresholdNum = parseFloat(ethers.utils.formatEther(swapThreshold));
     var contractTokenNum = parseFloat(ethers.utils.formatEther(contractTokenBal));
     var contractBnbNum = parseFloat(ethers.utils.formatEther(contractBnbBal));
+
+    // 同步开盘设置到 UI 按钮
+    var btn = document.getElementById('admin-auto-open-btn');
+    if (btn) {
+      if (autoOpen) {
+        btn.textContent = '✅ Mint满自动开盘（已开启）';
+        btn.style.background = 'linear-gradient(135deg,#22c55e,#4ade80)';
+        btn.style.color = '#fff';
+      } else {
+        btn.textContent = '🔴 Mint满自动开盘（已关闭）';
+        btn.style.background = 'rgba(255,255,255,.08)';
+        btn.style.color = 'var(--text-muted)';
+        btn.style.border = '1px solid rgba(255,255,255,.1)';
+      }
+    }
+    var openStatusEl = document.getElementById('admin-auto-open-status');
+    if (openStatusEl) {
+      if (openTime > 0n) {
+        var dt = new Date(Number(openTime) * 1000);
+        openStatusEl.textContent = autoOpen ? '（自动开 + 定时 ' + dt.toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}) + '）' : '（定时 ' + dt.toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}) + ' 开盘）';
+        openStatusEl.style.color = '#a78bfa';
+      } else {
+        openStatusEl.textContent = autoOpen ? '（mint满将自动开盘）' : '（mint满不会自动开盘，需手动/定时开）';
+        openStatusEl.style.color = autoOpen ? '#4ade80' : '#f59e0b';
+      }
+    }
+
+    // 更新手动加池区域余额
+    var lpInfo = document.getElementById('admin-manual-lp-info');
+    if (lpInfo) {
+      lpInfo.innerHTML =
+        '🪙 合约代币：<b style="color:#e8b84b">' + contractTokenNum.toFixed(4) + ' 枚</b> ｜ ' +
+        '💛 合约 BNB：<b style="color:#f59e0b">' + contractBnbNum.toFixed(6) + ' BNB</b>' +
+        (contractTokenNum > 0 && contractBnbNum > 0 ? ' <span style="color:#4caf50">✅ 可提取并手动加池</span>' : ' <span style="color:#ef4444">⚠️ 余额不足以加池</span>');
+    }
 
     document.getElementById('admin-status-box').innerHTML =
       '<div style="margin-bottom:8px">' +
@@ -752,6 +862,18 @@ async function adminWithdrawPresaleBNB(){
     showModal('⏳','提取预售BNB上链中','','waiting');
     await tx.wait();
     showModal('✅','预售BNB提取完成','','done');
+    adminRefreshStatus();
+  }catch(e){ showModal('⚠️','提取失败',e.reason||e.message,'error'); }
+}
+async function adminWithdrawAllTokens(){
+  try{
+    const tokenBal = await targetContract.balanceOf(targetContractAddr);
+    if(tokenBal.isZero()){ showModal('⚠️','无代币可提取','合约代币余额为0','error'); return; }
+    const tx = await targetContract.emergencyWithdrawToken(targetContractAddr, tokenBal);
+    showModal('⏳','提取代币上链中','数量: '+ethers.utils.formatEther(tokenBal)+' 枚','waiting');
+    await tx.wait();
+    showModal('✅','代币提取完成',ethers.utils.formatEther(tokenBal)+' 枚已转入仙尊洞府','done');
+    adminRefreshStatus();
   }catch(e){ showModal('⚠️','提取失败',e.reason||e.message,'error'); }
 }
 async function adminEnableTrading(){
